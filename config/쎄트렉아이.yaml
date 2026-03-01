@@ -1,0 +1,14 @@
+company:
+  name: 쎄트렉아이
+  ticker: 099320
+  tags: []
+report:
+  output_dir: ''
+  years: 5
+  quarters: 8
+  statement_type: 연결
+disclosures:
+  exchange_disclosures_file: C:/OneDrive/stocks/쎄트렉아이/쎄트렉아이_exchange_disclosure.json
+analysis:
+  reports_dir: C:/OneDrive/stocks/쎄트렉아이/reports
+  news_file: C:/OneDrive/stocks/쎄트렉아이/쎄트렉아이_news_20260301.json

@@ -1,0 +1,19 @@
+{
+  "type": "단일판매ㆍ공급계약해지",
+  "description": "상품공급",
+  "detail": "Fexuprazan의 중국 수출 공급 계약",
+  "cancel_amount": 384535969419,
+  "recent_revenue": 1055423689996,
+  "revenue_ratio_pct": 36.43,
+  "is_large_corp": true,
+  "counterparty": "Yangtze River Pharmaceutical Co.,Ltd",
+  "counterparty_relationship": "-",
+  "period": {
+    "start": "2021-03-17",
+    "end": "2036-04-27"
+  },
+  "conditions": "계약상대방의 계약 불이행에 따른 계약해지",
+  "cancel_date": "2026-02-12",
+  "notes": "- 2021년 3월 17일 체결된 계약에 따라, 계약상대방 Yangtze River Pharmaceutical Co.,Ltd는 중국 지역에서의 Fexuprazan 현지 대리인으로서 제품의 품목허가 취득, 판매 등 상업화 의무를 부담합니다. - 계약상대방의 중국 품목허가 취득 관련 계약상 의무가 적절히 이행되지 않음에 따라, 당사는 계약상대방에게 최종 계약 해지를 통보하였습니다. - 상기 '2. 해지내역-최근매출액'은 최초 계약 체결당시의 연결기준 매출액(2020년)입니다. - 상기 '6. 해지일자'는 당사가 계약상대방에 계약 해지를 통보한 일자입니다.",
+  "history": null
+}

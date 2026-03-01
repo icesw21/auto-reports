@@ -1,0 +1,22 @@
+{
+  "type": "단일판매ㆍ공급계약체결",
+  "description": "공사수주",
+  "detail": "한남5재정비촉진구역 주택재개발정비사업",
+  "contract_amount": 1758398000000,
+  "recent_revenue": 8318442435057,
+  "revenue_ratio_pct": 21.14,
+  "is_large_corp": true,
+  "counterparty": "한남5재정비촉진구역 주택재개발정비사업조합",
+  "counterparty_relationship": "-",
+  "region": "서울시 용산구 동빙고동 60번지 일대",
+  "period": {
+    "start": "2026-04-01",
+    "end": "2028-04-01"
+  },
+  "conditions": {
+    "계약금ㆍ선급금 유무": "무"
+  },
+  "contract_date": "2026-02-27",
+  "notes": null,
+  "history": null
+}

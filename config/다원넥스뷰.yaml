@@ -1,0 +1,14 @@
+company:
+  name: 다원넥스뷰
+  ticker: '323350'
+  tags: []
+report:
+  output_dir: ''
+  years: 5
+  quarters: 8
+  statement_type: 연결
+disclosures:
+  exchange_disclosures_file: C:/OneDrive/stocks/다원넥스뷰/다원넥스뷰_exchange_disclosure.json
+analysis:
+  reports_dir: C:/OneDrive/stocks/다원넥스뷰/reports
+  news_file: C:/OneDrive/stocks/다원넥스뷰/다원넥스뷰_news_20260301.json
