@@ -3,12 +3,14 @@
 import logging
 import os
 import sys
+import threading
 
 from loguru import logger
 
 DEFAULT_LOG_DIR = "stocks"
 
 _logging_initialized = False
+_logging_lock = threading.Lock()
 
 # Set default extra so {extra[name]} never raises KeyError
 logger.configure(extra={"name": "auto-reports"})
@@ -35,8 +37,15 @@ def setup_logging(log_dir: str = DEFAULT_LOG_DIR, log_level: str = "INFO") -> No
     """Initialize unified loguru logging with console + file sinks and stdlib intercept."""
     global _logging_initialized
 
-    if _logging_initialized:
-        return
+    with _logging_lock:
+        if _logging_initialized:
+            return
+        _setup_logging_unlocked(log_dir, log_level)
+        _logging_initialized = True
+
+
+def _setup_logging_unlocked(log_dir: str, log_level: str) -> None:
+    """Internal: actual logging setup (called under lock)."""
 
     os.makedirs(log_dir, exist_ok=True)
 
@@ -67,8 +76,6 @@ def setup_logging(log_dir: str = DEFAULT_LOG_DIR, log_level: str = "INFO") -> No
         retention=5,
         encoding="utf-8",
     )
-
-    _logging_initialized = True
 
 
 def get_logger(name: str = None):

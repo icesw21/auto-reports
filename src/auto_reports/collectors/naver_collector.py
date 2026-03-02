@@ -57,7 +57,6 @@ class NaverCollector(BaseCollector):
             int: Number of reports successfully downloaded
         """
         self.logger.info(f"Naver research collection started: {company_name} (after {start_date})")
-        print(f"Searching Naver research reports for [{company_name}] (after {start_date})...")
 
         # Setup save directory
         save_dir = os.path.join(self.output_dir, company_name)
@@ -100,7 +99,7 @@ class NaverCollector(BaseCollector):
                     file_path = os.path.join(save_dir, file_name)
 
                     if not os.path.exists(file_path):
-                        print(f"  - Downloading report: {clean_broker} - {clean_title}")
+                        self.logger.info(f"Downloading report: {clean_broker} - {clean_title}")
                         pdf_res = retry_request(requests.get, max_retries=3, base_delay=1, logger=self.logger,
                                                url=pdf_url, headers=self.headers, timeout=30)
                         if pdf_res.status_code != 200:
@@ -114,13 +113,12 @@ class NaverCollector(BaseCollector):
                         time.sleep(0.5)
                     else:
                         self.logger.info(f"Duplicate file skipped: {file_name}")
-                        print(f"  - Already exists: {file_name}")
 
             self.logger.info(f"Naver collection complete: {company_name} - {downloaded_count} downloaded")
 
         except Exception as e:
             self.logger.exception(f"Naver research collection error: {company_name}")
-            print(f"Error during research collection: {e}")
+            self.logger.error(f"Error during research collection: {e}")
             return 0
 
         return downloaded_count

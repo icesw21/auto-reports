@@ -5,6 +5,7 @@ This module provides download-related helper functions including
 download completion detection and popup handling.
 """
 
+import logging
 import os
 import time
 import glob
@@ -12,6 +13,8 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
+
+logger = logging.getLogger(__name__)
 
 
 def wait_for_download(download_dir: str, timeout: int = 60) -> bool:
@@ -68,7 +71,7 @@ def handle_html_popup(driver) -> None:
             EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), '\ud655\uc778')]"))
         )
         confirm_button.click()
-        print("Duplicate login popup confirmed.")
+        logger.info("Duplicate login popup confirmed.")
         time.sleep(3)
     except TimeoutException:
         pass

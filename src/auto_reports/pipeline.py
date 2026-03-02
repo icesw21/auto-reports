@@ -27,6 +27,7 @@ from auto_reports.fetchers.market_data import MarketDataFetcher
 from auto_reports.fetchers.opendart import OpenDartFetcher, _format_yoy, _subtract_income
 from auto_reports.models.financial import IncomeStatementItem
 from auto_reports.generators.report import generate_report, write_report
+from auto_reports.summarizers.openai_summarizer import generate_report_tags
 from auto_reports.models.disclosure import (
     BondType,
     CBIssuance,
@@ -1615,13 +1616,25 @@ def run_pipeline(
     else:
         filtered_contracts_raw = exchange_contracts_raw
 
+    # Unit-to-원 multiplier for normalizing amounts to 억원
+    _UNIT_MULTIPLIER = {
+        "원": 1,
+        "천원": 1_000,
+        "백만원": 1_000_000,
+        "억원": 1_0000_0000,
+    }
+
     exchange_contracts: list[ExchangeContract] = []
     for raw in filtered_contracts_raw:
         is_cancel = raw.get("type", "") == "단일판매ㆍ공급계약해지"
         amount_raw = raw.get("cancel_amount") if is_cancel else raw.get("contract_amount")
         amount_eok = ""
         if amount_raw and isinstance(amount_raw, (int, float)) and amount_raw > 0:
-            amount_eok = f"{round(amount_raw / 1_0000_0000):,}"
+            # Detect unit from LLM/parser output and convert to 원 first
+            unit = raw.get("amount_unit", "원")
+            multiplier = _UNIT_MULTIPLIER.get(unit, 1)
+            amount_in_won = amount_raw * multiplier
+            amount_eok = f"{round(amount_in_won / 1_0000_0000):,}"
         rev_ratio = raw.get("revenue_ratio_pct")
         rev_str = f"{rev_ratio:.1f}%" if rev_ratio else None
 
@@ -1719,6 +1732,29 @@ def run_pipeline(
         risk_tail=analysis_result.risk_tail if analysis_result else "",
         conclusion=analysis_result.conclusion if analysis_result else "",
     )
+
+    # ─── Phase 4.5: Generate tags via LLM ───
+    if settings.openai_api_key:
+        console.print("[dim]Generating tags...[/dim]")
+        llm_tags = generate_report_tags(
+            company_name=company.name,
+            business_model=report_data.business_model,
+            revenue_breakdown=report_data.revenue_breakdown,
+            investment_ideas=report_data.investment_ideas,
+            conclusion=report_data.conclusion,
+            api_key=settings.openai_api_key,
+            model=settings.openai_model,
+        )
+        if llm_tags:
+            # Merge: keep existing manual tags, append new LLM tags (deduplicated)
+            existing = set(report_data.frontmatter.tags)
+            merged = list(report_data.frontmatter.tags)
+            for tag in llm_tags:
+                if tag not in existing:
+                    merged.append(tag)
+                    existing.add(tag)
+            report_data.frontmatter.tags = merged
+            console.print(f"  [dim]Tags: {', '.join(merged)}[/dim]")
 
     if dry_run:
         console.print("[yellow]Dry run - not writing report[/yellow]")

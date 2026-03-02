@@ -147,7 +147,7 @@ class FnGuideCollector(BaseCollector):
                 empty_msg = driver.find_elements(By.CSS_SELECTOR, ".empty-case p.caption")
                 if empty_msg and ("No search results" in empty_msg[0].text or "검색결과가 없습니다" in empty_msg[0].text):
                     self.logger.warning(f"FnGuide no search results: {company_name}")
-                    print(f"[{company_name}] No FnGuide research reports found.")
+                    self.logger.warning(f"No FnGuide research reports found: {company_name}")
                     return 0
             except Exception:
                 pass
@@ -165,7 +165,7 @@ class FnGuideCollector(BaseCollector):
                     download_urls.append((url, broker, clean_title))
 
                 self.logger.info(f"FnGuide found {len(download_urls)} reports: {company_name}")
-                print(f"Found {len(download_urls)} report candidates for [{company_name}].")
+                self.logger.info(f"FnGuide found {len(download_urls)} report candidates: {company_name}")
 
                 for i, (url, broker, title) in enumerate(download_urls):
                     try:
@@ -179,16 +179,16 @@ class FnGuideCollector(BaseCollector):
                         # Duplicate check 1: target file already exists
                         if os.path.exists(file_path):
                             self.logger.info(f"Duplicate file skipped: {file_name}")
-                            print(f"  [{i + 1}] Duplicate: {file_name} (skipped)")
+                            self.logger.info(f"Duplicate file skipped: {file_name}")
                             continue
 
                         # Duplicate check 2: URL already downloaded (manifest)
                         if url in manifest:
                             self.logger.info(f"Duplicate URL skipped: {title}")
-                            print(f"  [{i + 1}] Duplicate (manifest): {title} (skipped)")
+                            self.logger.info(f"Duplicate URL skipped (manifest): {title}")
                             continue
 
-                        print(f"  [{i + 1}] Accessing viewer for '{title}'...")
+                        self.logger.info(f"Accessing viewer for: {title}")
 
                         # Snapshot PDFs before download to detect new file by set difference
                         before_pdfs = set(f for f in os.listdir(download_dir) if f.endswith('.pdf'))
@@ -199,7 +199,7 @@ class FnGuideCollector(BaseCollector):
                         # Click download button
                         download_btn = wait.until(EC.element_to_be_clickable((By.ID, "pdfViewer_download")))
                         driver.execute_script("arguments[0].click();", download_btn)
-                        print("  - Download button clicked.")
+                        self.logger.info("Download button clicked")
 
                         if wait_for_download(download_dir):
                             # Find newly downloaded PDF by set difference
@@ -218,35 +218,35 @@ class FnGuideCollector(BaseCollector):
                                 # Record in manifest and increment count
                                 manifest[url] = file_name
                                 downloaded_count += 1
-                                print(f"  - Download complete: {file_name}")
+                                self.logger.info(f"Download complete: {file_name}")
                             else:
                                 self.logger.warning(f"FnGuide download completed but no new PDF detected: {title}")
-                                print("  - Download finished but no new PDF file found.")
+                                self.logger.warning("Download completed but no new PDF detected")
                         else:
                             self.logger.warning(f"FnGuide download timeout: {title}")
-                            print("  - Download timeout (60s exceeded)")
+                            self.logger.warning("Download timeout (60s exceeded)")
 
                         driver.back()
                         wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "a.report-title")))
 
                     except Exception as e:
                         self.logger.exception(f"FnGuide download error: {title}")
-                        print(f"  - Download error: {e}")
+                        self.logger.error(f"Download error: {e}")
                         driver.get("https://www.fnguide.com/Research/SearchReport")
 
                 self.logger.info(f"FnGuide collection complete: {company_name} - {downloaded_count} downloaded")
 
             except TimeoutException:
                 self.logger.error(f"FnGuide report list loading failed: {company_name}")
-                print(f"[{company_name}] Failed to load report list.")
+                self.logger.error(f"FnGuide report list loading failed: {company_name}")
             except Exception as e:
                 self.logger.exception(f"FnGuide list processing error: {company_name}")
-                print(f"Error during list processing: {e}")
+                self.logger.error(f"FnGuide list processing error: {e}")
 
         finally:
             self._save_manifest(manifest_path, manifest)
             self.logger.info(f"FnGuide process ended: {company_name}")
-            print(f"[{company_name}] FnGuide process ended.")
+            self.logger.info(f"FnGuide process ended: {company_name}")
             if driver:
                 time.sleep(2)
                 driver.quit()

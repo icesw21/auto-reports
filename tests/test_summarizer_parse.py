@@ -1,6 +1,11 @@
-"""Tests for _parse_structured_response in openai_summarizer."""
+"""Tests for _parse_structured_response and generate_report_tags in openai_summarizer."""
 
-from auto_reports.summarizers.openai_summarizer import _parse_structured_response
+from unittest.mock import MagicMock, patch
+
+from auto_reports.summarizers.openai_summarizer import (
+    _parse_structured_response,
+    generate_report_tags,
+)
 
 
 def test_normal_multiline():
@@ -81,3 +86,178 @@ def test_empty_input():
 def test_no_sections():
     """Text without [headers] returns empty dict."""
     assert _parse_structured_response("just plain text") == {}
+
+
+# ── generate_report_tags tests ──
+
+
+class TestGenerateReportTags:
+    """Tests for generate_report_tags."""
+
+    def _mock_response(self, content: str):
+        """Create a mock OpenAI response."""
+        msg = MagicMock()
+        msg.content = content
+        choice = MagicMock()
+        choice.message = msg
+        resp = MagicMock()
+        resp.choices = [choice]
+        return resp
+
+    @patch("auto_reports.summarizers.openai_summarizer.OpenAI")
+    def test_basic_tag_generation(self, mock_openai_cls):
+        """LLM returns tags, one per line."""
+        mock_client = MagicMock()
+        mock_openai_cls.return_value = mock_client
+        mock_client.chat.completions.create.return_value = self._mock_response(
+            "우주산업\n위성제조\n위성영상\nK방산수출"
+        )
+
+        tags = generate_report_tags(
+            company_name="쎄트렉아이",
+            business_model="- 위성 시스템 개발/제조",
+            revenue_breakdown="위성영상 60%, 위성제조 40%",
+            investment_ideas="",
+            conclusion="",
+            api_key="test-key",
+        )
+        assert tags == ["우주산업", "위성제조", "위성영상", "K방산수출"]
+        mock_client.chat.completions.create.assert_called_once()
+
+    @patch("auto_reports.summarizers.openai_summarizer.OpenAI")
+    def test_strips_hash_and_dash_prefix(self, mock_openai_cls):
+        """Tags with '#' or '- ' prefix are cleaned."""
+        mock_client = MagicMock()
+        mock_openai_cls.return_value = mock_client
+        mock_client.chat.completions.create.return_value = self._mock_response(
+            "#AI반도체\n- 2차전지\n# 전기차"
+        )
+
+        tags = generate_report_tags(
+            company_name="테스트사",
+            business_model="반도체",
+            revenue_breakdown="",
+            investment_ideas="",
+            conclusion="",
+            api_key="test-key",
+        )
+        assert tags == ["AI반도체", "2차전지", "전기차"]
+
+    @patch("auto_reports.summarizers.openai_summarizer.OpenAI")
+    def test_max_5_tags(self, mock_openai_cls):
+        """At most 5 tags returned even if LLM outputs more."""
+        mock_client = MagicMock()
+        mock_openai_cls.return_value = mock_client
+        mock_client.chat.completions.create.return_value = self._mock_response(
+            "태그1\n태그2\n태그3\n태그4\n태그5\n태그6\n태그7"
+        )
+
+        tags = generate_report_tags(
+            company_name="테스트사",
+            business_model="사업모델",
+            revenue_breakdown="",
+            investment_ideas="",
+            conclusion="",
+            api_key="test-key",
+        )
+        assert len(tags) == 5
+
+    def test_no_api_key_returns_empty(self):
+        """No API key returns empty list without calling LLM."""
+        tags = generate_report_tags(
+            company_name="테스트사",
+            business_model="사업모델",
+            revenue_breakdown="",
+            investment_ideas="",
+            conclusion="",
+            api_key="",
+        )
+        assert tags == []
+
+    def test_no_content_returns_empty(self):
+        """No content sections returns empty list without calling LLM."""
+        tags = generate_report_tags(
+            company_name="테스트사",
+            business_model="",
+            revenue_breakdown="",
+            investment_ideas="",
+            conclusion="",
+            api_key="test-key",
+        )
+        assert tags == []
+
+    @patch("auto_reports.summarizers.openai_summarizer.OpenAI")
+    def test_api_error_returns_empty(self, mock_openai_cls):
+        """API error returns empty list gracefully."""
+        mock_client = MagicMock()
+        mock_openai_cls.return_value = mock_client
+        mock_client.chat.completions.create.side_effect = Exception("API error")
+
+        tags = generate_report_tags(
+            company_name="테스트사",
+            business_model="사업모델",
+            revenue_breakdown="",
+            investment_ideas="",
+            conclusion="",
+            api_key="test-key",
+        )
+        assert tags == []
+
+    @patch("auto_reports.summarizers.openai_summarizer.OpenAI")
+    def test_duplicate_tags_deduplicated(self, mock_openai_cls):
+        """Duplicate tags from LLM are deduplicated."""
+        mock_client = MagicMock()
+        mock_openai_cls.return_value = mock_client
+        mock_client.chat.completions.create.return_value = self._mock_response(
+            "우주산업\n위성제조\n우주산업\n위성영상\n위성제조"
+        )
+
+        tags = generate_report_tags(
+            company_name="테스트사",
+            business_model="위성 사업",
+            revenue_breakdown="",
+            investment_ideas="",
+            conclusion="",
+            api_key="test-key",
+        )
+        assert tags == ["우주산업", "위성제조", "위성영상"]
+
+    @patch("auto_reports.summarizers.openai_summarizer.OpenAI")
+    def test_empty_lines_filtered(self, mock_openai_cls):
+        """Empty lines in LLM output are ignored."""
+        mock_client = MagicMock()
+        mock_openai_cls.return_value = mock_client
+        mock_client.chat.completions.create.return_value = self._mock_response(
+            "우주산업\n\n위성제조\n\n위성영상"
+        )
+
+        tags = generate_report_tags(
+            company_name="테스트사",
+            business_model="위성 사업",
+            revenue_breakdown="",
+            investment_ideas="",
+            conclusion="",
+            api_key="test-key",
+        )
+        assert tags == ["우주산업", "위성제조", "위성영상"]
+
+    @patch("auto_reports.summarizers.openai_summarizer.OpenAI")
+    def test_long_tags_filtered(self, mock_openai_cls):
+        """Tags longer than 20 chars are filtered out."""
+        mock_client = MagicMock()
+        mock_openai_cls.return_value = mock_client
+        mock_client.chat.completions.create.return_value = self._mock_response(
+            "AI반도체\n이것은매우긴태그이름이라서필터링되어야합니다스물자넘음\n2차전지"
+        )
+
+        tags = generate_report_tags(
+            company_name="테스트사",
+            business_model="반도체",
+            revenue_breakdown="",
+            investment_ideas="",
+            conclusion="",
+            api_key="test-key",
+        )
+        assert "AI반도체" in tags
+        assert "2차전지" in tags
+        assert len(tags) == 2

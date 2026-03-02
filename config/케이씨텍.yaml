@@ -1,0 +1,14 @@
+company:
+  name: 케이씨텍
+  ticker: '281820'
+  tags: []
+report:
+  output_dir: ''
+  years: 5
+  quarters: 8
+  statement_type: 연결
+disclosures:
+  exchange_disclosures_file: C:/OneDrive/stocks/케이씨텍/케이씨텍_exchange_disclosure.json
+analysis:
+  reports_dir: C:/OneDrive/stocks/케이씨텍/reports
+  news_file: C:/OneDrive/stocks/케이씨텍/케이씨텍_news_20260302.json

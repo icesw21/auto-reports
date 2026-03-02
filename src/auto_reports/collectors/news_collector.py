@@ -80,7 +80,7 @@ class NewsCollector(BaseCollector):
             int: Total number of news articles collected
         """
         self.logger.info(f"News collection started: {company_name}")
-        print(f"Collecting news for [{company_name}]...")
+        self.logger.info(f"Collecting news for {company_name}")
 
         # Setup save directory
         save_dir = os.path.join(self.output_dir, company_name)

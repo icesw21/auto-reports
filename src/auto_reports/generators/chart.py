@@ -6,6 +6,9 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
+import matplotlib
+matplotlib.use("Agg")  # Non-interactive backend (thread-safe, must be before pyplot import)
+
 logger = logging.getLogger(__name__)
 
 

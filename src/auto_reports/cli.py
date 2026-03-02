@@ -28,7 +28,8 @@ def cli():
 @click.option("--skip-fnguide", is_flag=True, help="Skip FnGuide collection (no Selenium).")
 @click.option("--skip-news", is_flag=True, help="Skip news collection.")
 @click.option("--verbose", "-v", is_flag=True, help="Enable verbose logging.")
-def download(stocks_path: str | None, company: str | None, skip_fnguide: bool, skip_news: bool, verbose: bool):
+@click.option("--workers", "-w", default=1, type=click.IntRange(min=1), help="Number of parallel workers (default: 1=sequential). Use --skip-fnguide with -w>1.")
+def download(stocks_path: str | None, company: str | None, skip_fnguide: bool, skip_news: bool, verbose: bool, workers: int):
     """Download data only: DART filings, research PDFs, and news.
 
     \b
@@ -36,6 +37,7 @@ def download(stocks_path: str | None, company: str | None, skip_fnguide: bool, s
       auto-reports download                      # All stocks
       auto-reports download -c 광동제약           # Single company
       auto-reports download --skip-fnguide       # Without FnGuide (no Selenium)
+      auto-reports download -w 3                 # 3 parallel workers
     """
     from auto_reports.config import Settings
     from auto_reports.utils.logging import setup_logging
@@ -53,6 +55,7 @@ def download(stocks_path: str | None, company: str | None, skip_fnguide: bool, s
             skip_fnguide=skip_fnguide,
             skip_news=skip_news,
             company_filter=company,
+            max_workers=workers,
         )
         success = sum(1 for v in results.values() if v)
         console.print(f"\n[bold]Download complete: {success}/{len(results)} companies succeeded.[/bold]")
@@ -74,7 +77,8 @@ def download(stocks_path: str | None, company: str | None, skip_fnguide: bool, s
 @click.option("--company", "-c", default=None, help="Analyze a single company only (by name).")
 @click.option("--no-copy", is_flag=True, help="Skip copying reports to Obsidian inbox.")
 @click.option("--verbose", "-v", is_flag=True, help="Enable verbose logging.")
-def analyze(stocks_path: str | None, company: str | None, no_copy: bool, verbose: bool):
+@click.option("--workers", "-w", default=1, type=click.IntRange(min=1), help="Number of parallel workers (default: 1=sequential). Use --skip-fnguide with -w>1.")
+def analyze(stocks_path: str | None, company: str | None, no_copy: bool, verbose: bool, workers: int):
     """Analyze stocks and generate reports only (no data download).
 
     Runs init (generate configs) + batch (generate reports) in sequence.
@@ -85,6 +89,7 @@ def analyze(stocks_path: str | None, company: str | None, no_copy: bool, verbose
       auto-reports analyze                       # All stocks
       auto-reports analyze -c 광동제약            # Single company
       auto-reports analyze --no-copy             # Skip Obsidian copy
+      auto-reports analyze -w 3                  # 3 parallel workers
     """
     from auto_reports.config import Settings
     from auto_reports.orchestrator import run_analyze
@@ -99,6 +104,7 @@ def analyze(stocks_path: str | None, company: str | None, no_copy: bool, verbose
             no_copy=no_copy,
             verbose=verbose,
             company_filter=company,
+            max_workers=workers,
         )
     except Exception as e:
         console.print(f"[red]Error: {e}[/red]")
@@ -118,11 +124,12 @@ def analyze(stocks_path: str | None, company: str | None, no_copy: bool, verbose
 @click.option("--skip-fnguide", is_flag=True, help="Skip FnGuide collection (no Selenium).")
 @click.option("--skip-news", is_flag=True, help="Skip news collection.")
 @click.option("--verbose", "-v", is_flag=True, help="Enable verbose logging.")
+@click.option("--workers", "-w", default=1, type=click.IntRange(min=1), help="Number of parallel workers (default: 1=sequential). Use --skip-fnguide with -w>1.")
 @click.pass_context
-def collect(ctx, stocks_path, company, skip_fnguide, skip_news, verbose):
+def collect(ctx, stocks_path, company, skip_fnguide, skip_news, verbose, workers):
     """Collect DART filings, research PDFs, and news (alias for 'download')."""
     ctx.invoke(download, stocks_path=stocks_path, company=company,
-               skip_fnguide=skip_fnguide, skip_news=skip_news, verbose=verbose)
+               skip_fnguide=skip_fnguide, skip_news=skip_news, verbose=verbose, workers=workers)
 
 
 # ---------------------------------------------------------------------------
@@ -232,13 +239,14 @@ def generate(config_path: str, output_dir: str | None, verbose: bool, dry_run: b
 @click.option("--output-dir", "-o", default=None, help="Override output directory.")
 @click.option("--verbose", "-v", is_flag=True, help="Enable verbose logging.")
 @click.option("--no-copy", is_flag=True, help="Skip copying reports to Obsidian inbox.")
-def batch(config_paths: tuple[str, ...], run_all: bool, output_dir: str | None, verbose: bool, no_copy: bool):
+@click.option("--workers", "-w", default=1, type=click.IntRange(min=1), help="Number of parallel workers (default: 1=sequential). Use --skip-fnguide with -w>1.")
+def batch(config_paths: tuple[str, ...], run_all: bool, output_dir: str | None, verbose: bool, no_copy: bool, workers: int):
     """Generate reports for multiple companies at once.
 
     \b
     Examples:
-      auto-reports batch config/광동제약.yaml config/보성파워텍.yaml
       auto-reports batch --all
+      auto-reports batch --all -w 3              # 3 parallel workers
       auto-reports batch --all --no-copy
     """
     from auto_reports.config import Settings
@@ -247,7 +255,7 @@ def batch(config_paths: tuple[str, ...], run_all: bool, output_dir: str | None, 
     settings = Settings()
 
     if run_all:
-        run_batch_all(settings, no_copy=no_copy, verbose=verbose, output_dir=output_dir)
+        run_batch_all(settings, no_copy=no_copy, verbose=verbose, output_dir=output_dir, max_workers=workers)
         return
 
     if not config_paths:
@@ -318,7 +326,8 @@ def batch(config_paths: tuple[str, ...], run_all: bool, output_dir: str | None, 
 @click.option("--skip-news", is_flag=True, help="Skip news during collection.")
 @click.option("--no-copy", is_flag=True, help="Skip Obsidian copy after report generation.")
 @click.option("--verbose", "-v", is_flag=True, help="Enable verbose logging.")
-def run(stocks_path: str | None, company: str | None, skip_fnguide: bool, skip_news: bool, no_copy: bool, verbose: bool):
+@click.option("--workers", "-w", default=1, type=click.IntRange(min=1), help="Number of parallel workers for collection and report generation (default: 1=sequential).")
+def run(stocks_path: str | None, company: str | None, skip_fnguide: bool, skip_news: bool, no_copy: bool, verbose: bool, workers: int):
     """Execute the full pipeline: collect -> init -> batch.
 
     This is the main unified command that runs the entire workflow.
@@ -327,7 +336,7 @@ def run(stocks_path: str | None, company: str | None, skip_fnguide: bool, skip_n
     Example:
       auto-reports run
       auto-reports run -c 광동제약
-      auto-reports run --skip-fnguide --verbose
+      auto-reports run -w 3                      # 3 parallel workers
     """
     from auto_reports.config import Settings
     from auto_reports.orchestrator import run_full_pipeline
@@ -344,6 +353,7 @@ def run(stocks_path: str | None, company: str | None, skip_fnguide: bool, skip_n
             no_copy=no_copy,
             verbose=verbose,
             company_filter=company,
+            max_workers=workers,
         )
     except Exception as e:
         console.print(f"[red]Pipeline error: {e}[/red]")
