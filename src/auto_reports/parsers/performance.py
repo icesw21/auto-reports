@@ -267,8 +267,22 @@ def parse_performance(soup: BeautifulSoup) -> Performance:
         or None
     )
 
+    # Detect unit from document text (e.g., "단위:천원", "단위 : 백만원")
+    # Target the income changes section header to avoid picking up a
+    # different unit from the financial status section.
+    unit = "원"
+    full_text = soup.get_text()
+    unit_m = re.search(
+        r'손익구조변동.*?단위\s*[:：]\s*(천원|백만원|억원|원)', full_text, re.DOTALL,
+    )
+    if not unit_m:
+        unit_m = re.search(r'단위\s*[:：]\s*(천원|백만원|억원|원)', full_text)
+    if unit_m:
+        unit = unit_m.group(1)
+
     try:
         return Performance(
+            unit=unit,
             **{
                 "1. 재무제표의 종류": statement_type,
                 "2. 결산기간": period_dict,

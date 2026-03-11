@@ -1,0 +1,14 @@
+company:
+  name: 이노와이어리스
+  ticker: 073490
+  tags: []
+report:
+  output_dir: ''
+  years: 5
+  quarters: 8
+  statement_type: 연결
+disclosures:
+  exchange_disclosures_file: C:/OneDrive/stocks/이노와이어리스/이노와이어리스_exchange_disclosure.json
+analysis:
+  reports_dir: C:/OneDrive/stocks/이노와이어리스/reports
+  news_file: C:/OneDrive/stocks/이노와이어리스/이노와이어리스_news_20260310.json

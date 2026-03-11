@@ -23,8 +23,10 @@ class BalanceSheet(BaseModel):
     cash_and_equivalents: Optional[int] = None
     short_term_investments: Optional[int] = None
     total_liabilities: Optional[int] = None
-    short_term_borrowings: Optional[int] = None
-    current_long_term_debt: Optional[int] = None
+    short_term_borrowings: Optional[int] = None  # 단기차입금
+    current_long_term_debt: Optional[int] = None  # 유동성장기부채
+    current_bonds: Optional[int] = None  # 유동성사채
+    long_term_borrowings: Optional[int] = None  # 장기차입금
     bonds: Optional[int] = None  # 사채
     total_equity: Optional[int] = None
 
@@ -40,8 +42,16 @@ class IncomeStatementItem(BaseModel):
     net_income_yoy: Optional[str] = None
 
 
+class ConsensusItem(BaseModel):
+    """Naver consensus estimate for a future period (억원 → 원 변환 후 저장)."""
+    period: str = ""          # "2026(E)"
+    revenue: Optional[int] = None          # 원 단위
+    operating_income: Optional[int] = None
+    net_income: Optional[int] = None
+
+
 class MarketData(BaseModel):
-    """Market data from FinanceDataReader."""
+    """Market data from Naver Finance API."""
     date: str = ""
     stock_price: Optional[int] = None
     market_cap: Optional[int] = None  # in won

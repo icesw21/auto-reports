@@ -15,6 +15,7 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 from auto_reports.analyzers.financial import (
     build_annual_rows,
     build_balance_sheet_rows,
+    build_consensus_rows,
     build_cumulative_annual_row,
     build_quarterly_rows,
 )
@@ -239,15 +240,19 @@ def _upsert_statement(statements: list, item: IncomeStatementItem) -> None:
     statements.append(item)
 
 
+_PERF_UNIT_MULTIPLIER = {"원": 1, "천원": 1_000, "백만원": 1_000_000, "억원": 100_000_000}
+
+
 def _build_is_from_performance(perf: Performance) -> IncomeStatementItem:
     """Build an IncomeStatementItem from a Performance disclosure."""
+    multiplier = _PERF_UNIT_MULTIPLIER.get(perf.unit, 1)
     is_item = IncomeStatementItem(period="")
     if perf.revenue and perf.revenue.current_int is not None:
-        is_item.revenue = perf.revenue.current_int
+        is_item.revenue = perf.revenue.current_int * multiplier
     if perf.operating_income and perf.operating_income.current_int is not None:
-        is_item.operating_income = perf.operating_income.current_int
+        is_item.operating_income = perf.operating_income.current_int * multiplier
     if perf.net_income and perf.net_income.current_int is not None:
-        is_item.net_income = perf.net_income.current_int
+        is_item.net_income = perf.net_income.current_int * multiplier
     return is_item
 
 
@@ -355,6 +360,91 @@ def _integrate_performance_disclosures(
                     "missing preceding quarters",
                     quarter, year,
                 )
+
+
+def _integrate_preliminary_results(
+    preliminary_results: list[dict],
+    annual_statements: list,
+    quarterly_statements: list,
+) -> None:
+    """Integrate 잠정실적 disclosures into income statements.
+
+    Converts quarterly and cumulative data from 잠정실적 into
+    IncomeStatementItem objects and inserts them into the statement lists.
+    Values are converted from the disclosure unit (백만원/억원) to 원.
+    """
+    _UNIT_MULTIPLIER = {"백만원": 1_000_000, "억원": 100_000_000, "천원": 1_000}
+
+    for prelim in preliminary_results:
+        unit = prelim.get("unit", "백만원")
+        multiplier = _UNIT_MULTIPLIER.get(unit, 1_000_000)
+        periods = prelim.get("periods", {})
+        quarterly = prelim.get("quarterly", {})
+        cumulative = prelim.get("cumulative", {})
+
+        # ── Quarterly data (당해실적) ──
+        current_period = periods.get("당해실적", {})
+        label = current_period.get("label", "")  # e.g. "2025.4Q"
+        if label and quarterly:
+            # Convert "2025.4Q" to "2025.Q4"
+            m = re.match(r"(\d{4})\.(\d)Q", label)
+            if m:
+                period_str = f"{m.group(1)}.Q{m.group(2)}"
+                existing = next(
+                    (s for s in quarterly_statements
+                     if s.period == period_str and not _is_empty_is(s)),
+                    None,
+                )
+                if not existing:
+                    def _get_val(item_key: str) -> int | None:
+                        item = quarterly.get(item_key, {})
+                        val = item.get("당해실적")
+                        return int(val * multiplier) if val is not None else None
+
+                    is_item = IncomeStatementItem(
+                        period=period_str,
+                        revenue=_get_val("매출액"),
+                        operating_income=_get_val("영업이익"),
+                        net_income=_get_val("당기순이익"),
+                    )
+                    if not _is_empty_is(is_item):
+                        _upsert_statement(quarterly_statements, is_item)
+                        logger.info(
+                            "Added quarterly IS from preliminary results: %s",
+                            period_str,
+                        )
+
+        # ── Cumulative annual data ──
+        cum_period = periods.get("누적당해실적", {})
+        cum_start = cum_period.get("start", "")
+        cum_end = cum_period.get("end", "")
+        if cum_start and cum_end and cumulative:
+            # Check if this is a full year (Jan-Dec)
+            if cum_start.endswith("-01-01") and cum_end.endswith("-12-31"):
+                year_str = cum_start[:4]
+                existing = next(
+                    (s for s in annual_statements
+                     if s.period == year_str and not _is_empty_is(s)),
+                    None,
+                )
+                if not existing:
+                    def _get_cum_val(item_key: str) -> int | None:
+                        item = cumulative.get(item_key, {})
+                        val = item.get("당해실적")
+                        return int(val * multiplier) if val is not None else None
+
+                    is_item = IncomeStatementItem(
+                        period=year_str,
+                        revenue=_get_cum_val("매출액"),
+                        operating_income=_get_cum_val("영업이익"),
+                        net_income=_get_cum_val("당기순이익"),
+                    )
+                    if not _is_empty_is(is_item):
+                        _upsert_statement(annual_statements, is_item)
+                        logger.info(
+                            "Added annual IS from preliminary results: %s",
+                            year_str,
+                        )
 
 
 def _fill_gaps_with_report(
@@ -664,6 +754,7 @@ def _phase3b_llm_pdf_fallback(
     model: str,
     console: "Console",
     skip_categories: set[str] | None = None,
+    base_url: str = "",
 ) -> int:
     """LLM enrichment/fallback: extract overhang data from local 주요사항보고서 PDFs.
 
@@ -708,9 +799,16 @@ def _phase3b_llm_pdf_fallback(
             continue
 
         if category == "RIGHTS_ISSUE":
-            llm_data = extract_rights_issue(text, api_key, model)
+            llm_data = extract_rights_issue(text, api_key, model, base_url=base_url)
             if llm_data:
                 event = _convert_ri_llm_to_event(llm_data)
+                # Skip 보통주-only rights issues (no 전환우선주/기타주식)
+                if event.get("new_shares_other", 0) <= 0 and event.get("new_shares_common", 0) > 0:
+                    logger.info(
+                        "LLM PDF enrichment: skipping 보통주-only RIGHTS_ISSUE from %s",
+                        pdf_path.name,
+                    )
+                    continue
                 if event.get("shares", 0) <= 0:
                     logger.warning(
                         "LLM PDF enrichment: RIGHTS_ISSUE new_shares not extracted from %s, skipping",
@@ -723,7 +821,7 @@ def _phase3b_llm_pdf_fallback(
                 count += 1
                 logger.info("LLM PDF enrichment: %s from %s", category, pdf_path.name)
         elif category == "STOCK_OPTION":
-            llm_data = extract_stock_option(text, api_key, model)
+            llm_data = extract_stock_option(text, api_key, model, base_url=base_url)
             if llm_data:
                 shares = llm_data.get("shares") or 0
                 if shares <= 0:
@@ -747,7 +845,7 @@ def _phase3b_llm_pdf_fallback(
                 count += 1
                 logger.info("LLM PDF fallback: %s from %s", category, pdf_path.name)
         else:
-            llm_data = extract_cb_issuance(text, api_key, model)
+            llm_data = extract_cb_issuance(text, api_key, model, base_url=base_url)
             if llm_data:
                 event = _convert_cb_llm_to_event(llm_data, category)
                 overhang_analyzer.process_event(event)
@@ -867,7 +965,7 @@ def run_pipeline(
                 if parser_fn:
                     result = parser_fn(soup)
                     # LLM fallback for sparse deterministic results
-                    if settings.openai_api_key:
+                    if settings.llm_api_key:
                         if (
                             disc_type == DisclosureType.RIGHTS_ISSUE
                             and isinstance(result, dict)
@@ -878,7 +976,8 @@ def run_pipeline(
                                 extract_rights_issue,
                             )
                             llm_ri = extract_rights_issue(
-                                raw_text, settings.openai_api_key, settings.openai_model,
+                                raw_text, settings.llm_api_key, settings.llm_model,
+                                base_url=settings.llm_base_url,
                             )
                             if llm_ri:
                                 result = llm_ri
@@ -916,6 +1015,8 @@ def run_pipeline(
     exchange_overhang_exercises: list[dict] = []
     exchange_overhang_price_adjs: list[dict] = []
     exchange_contracts_raw: list[dict] = []
+    exchange_preliminary_results: list[dict] = []
+    exchange_forecasts: list[dict] = []
 
     try:
         exchange_entries = company_config.disclosures.load_exchange_disclosures(project_root)
@@ -941,7 +1042,7 @@ def run_pipeline(
 
                 # LLM enhancement: if deterministic failed or returned sparse
                 # result, use unified LLM extraction (single call handles all types)
-                if settings.openai_api_key and (
+                if settings.llm_api_key and (
                     category == "unknown"
                     or _is_sparse_exchange_result(category, result)
                 ):
@@ -952,7 +1053,8 @@ def run_pipeline(
 
                     llm_out = extract_exchange_disclosure_unified(
                         raw_text, title,
-                        settings.openai_api_key, settings.openai_model,
+                        settings.llm_api_key, settings.llm_model,
+                        base_url=settings.llm_base_url,
                     )
                     if llm_out:
                         category, result = llm_out
@@ -978,6 +1080,14 @@ def run_pipeline(
                     result["_entry_date"] = entry.get("date", "")
                     exchange_contracts_raw.append(result)
                     logger.debug("Parsed exchange backlog: %s", title or url)
+                elif category == "preliminary":
+                    result["_entry_date"] = entry.get("date", "")
+                    exchange_preliminary_results.append(result)
+                    logger.debug("Parsed exchange preliminary: %s", title or url)
+                elif category == "forecast":
+                    result["_entry_date"] = entry.get("date", "")
+                    exchange_forecasts.append(result)
+                    logger.debug("Parsed exchange forecast: %s", title or url)
                 elif category == "unknown":
                     # Last resort: try DART classifier for non-exchange types
                     disc_type = classify_disclosure(title) if title else DisclosureType.UNKNOWN
@@ -1008,6 +1118,8 @@ def run_pipeline(
             "exercise": len(exchange_overhang_exercises),
             "price_adj": len(exchange_overhang_price_adjs),
             "backlog": len(exchange_contracts_raw),
+            "preliminary": len(exchange_preliminary_results),
+            "forecast": len(exchange_forecasts),
         }
         for cat, cnt in counts.items():
             if cnt:
@@ -1051,6 +1163,12 @@ def run_pipeline(
                 _integrate_performance_disclosures(
                     parsed_disclosures, annual_statements, quarterly_with_extra,
                 )
+                if exchange_preliminary_results:
+                    _integrate_preliminary_results(
+                        exchange_preliminary_results,
+                        annual_statements,
+                        quarterly_with_extra,
+                    )
 
                 # ── Report HTML fallback for missing API data ──
                 report_fetcher = None
@@ -1165,15 +1283,26 @@ def run_pipeline(
     except Exception as e:
         logger.warning("Price history fetch failed: %s", e)
 
+    # Fetch consensus estimates from Naver
+    consensus_items = []
+    try:
+        if market_fetcher:
+            consensus_items = market_fetcher.get_consensus(company.ticker)
+            if consensus_items:
+                console.print(f"  [green]Consensus[/green]: {len(consensus_items)} estimate(s)")
+    except Exception as e:
+        logger.warning("Consensus fetch failed: %s", e)
+
     # ─── Phase 2.5: Fetch business sections from report ───
     business_summary = None
     if settings.dart_api_key:
         console.print("\n[dim]Fetching business section from report...[/dim]")
         try:
             biz_fetcher = DartBusinessFetcher(settings.dart_api_key)
-            corp_id = company.corp_code or company.ticker
+            corp_id = corp_code or company.corp_code or company.ticker
+            logger.debug("Business section corp_id: %s (corp_code=%s, ticker=%s)", corp_id, corp_code, company.ticker)
             biz_sections = biz_fetcher.fetch_business_sections(corp_id)
-            if biz_sections and settings.openai_api_key:
+            if biz_sections and settings.llm_api_key:
                 console.print("  [dim]Summarizing with LLM...[/dim]")
                 from auto_reports.summarizers.openai_summarizer import (
                     summarize_business_sections,
@@ -1184,12 +1313,13 @@ def run_pipeline(
                     주요제품=biz_sections.주요제품,
                     원재료=biz_sections.원재료,
                     매출수주=biz_sections.매출수주,
-                    api_key=settings.openai_api_key,
-                    model=settings.openai_model,
+                    api_key=settings.llm_api_key,
+                    model=settings.llm_model,
+                    base_url=settings.llm_base_url,
                 )
                 business_summary.report_source = f"{biz_sections.report_title} 기준"
                 console.print("  [green]Business section summarized[/green]")
-            elif biz_sections and not settings.openai_api_key:
+            elif biz_sections and not settings.llm_api_key:
                 console.print("  [yellow]No OPENAI_API_KEY - skipping summarization[/yellow]")
         except Exception as e:
             logger.warning("Business section fetch/summarize failed: %s", e)
@@ -1206,7 +1336,12 @@ def run_pipeline(
     if dart_fetcher and corp_code:
         console.print("  [dim]Phase 3a: Fetching overhang from 재무제표 주석...[/dim]")
         try:
-            notes_instruments, reference_date = dart_fetcher.get_overhang_from_notes(corp_code)
+            notes_instruments, reference_date = dart_fetcher.get_overhang_from_notes(
+                corp_code,
+                api_key=settings.llm_api_key,
+                model=settings.llm_model,
+                base_url=settings.llm_base_url,
+            )
             for inst in notes_instruments:
                 overhang_analyzer.process_notes_instrument(inst)
             if notes_instruments:
@@ -1249,12 +1384,13 @@ def run_pipeline(
     # Step 3b enrichment: LLM extraction from local 주요사항보고서 PDFs
     # Always runs for RIGHTS_ISSUE (piicDecsn API lacks conversion terms);
     # for CB/BW/SO, only runs when the API returned no data (fallback).
-    if settings.openai_api_key and stock_dir:
+    if settings.llm_api_key and stock_dir:
         console.print("  [dim]Phase 3b: LLM enrichment from local 주요사항보고서 PDFs...[/dim]")
         _phase3b_llm_pdf_fallback(
             stock_dir, reference_date or "", overhang_analyzer,
-            settings.openai_api_key, settings.openai_model, console,
+            settings.llm_api_key, settings.llm_model, console,
             skip_categories={"CB", "BW", "STOCK_OPTION"} if new_issuances else set(),
+            base_url=settings.llm_base_url,
         )
 
     # ─── Phase 3c: Post-기준일 거래소 공시 updates ───
@@ -1282,6 +1418,11 @@ def run_pipeline(
         post_ref_exercises = exchange_overhang_exercises
         post_ref_price_adjs = exchange_overhang_price_adjs
 
+    # Sort by date (ascending) so the latest exercise/price_adj wins.
+    # Normalize separators (YYYY-MM-DD vs YYYY.MM.DD) for correct ordering.
+    post_ref_exercises.sort(key=lambda d: d.get("_entry_date", "").replace(".", "-"))
+    post_ref_price_adjs.sort(key=lambda d: d.get("_entry_date", "").replace(".", "-"))
+
     if post_ref_exercises or post_ref_price_adjs:
         console.print("  [dim]Phase 3c: Applying post-기준일 거래소 공시...[/dim]")
 
@@ -1304,7 +1445,7 @@ def run_pipeline(
     shareholder_info = ""
     dividend_info = ""
     subsidiary_info = ""
-    if settings.dart_api_key and settings.openai_api_key and corp_code:
+    if settings.dart_api_key and settings.llm_api_key and corp_code:
         console.print("\n[dim]Fetching supplementary sections (주주/배당/종속회사)...[/dim]")
         try:
             from auto_reports.fetchers.dart_supplementary import DartSupplementaryFetcher
@@ -1317,25 +1458,29 @@ def run_pipeline(
             supp_fetcher = DartSupplementaryFetcher(settings.dart_api_key)
             supp_sections = supp_fetcher.fetch_supplementary_sections(corp_code)
 
-            llm_model = settings.openai_model
+            llm_model = settings.llm_model
+            llm_base = settings.llm_base_url
 
             if supp_sections["shareholder"]:
                 shareholder_info = extract_shareholder_info(
-                    supp_sections["shareholder"], settings.openai_api_key, llm_model,
+                    supp_sections["shareholder"], settings.llm_api_key, llm_model,
+                    base_url=llm_base,
                 )
                 if shareholder_info:
                     console.print(f"  [green]주주 구성[/green]: {shareholder_info}")
 
             if supp_sections["dividend"]:
                 dividend_info = extract_dividend_info(
-                    supp_sections["dividend"], settings.openai_api_key, llm_model,
+                    supp_sections["dividend"], settings.llm_api_key, llm_model,
+                    base_url=llm_base,
                 )
                 if dividend_info:
                     console.print(f"  [green]배당[/green]: {dividend_info}")
 
             if supp_sections["subsidiary"]:
                 subsidiary_info = extract_subsidiary_info(
-                    supp_sections["subsidiary"], settings.openai_api_key, llm_model,
+                    supp_sections["subsidiary"], settings.llm_api_key, llm_model,
+                    base_url=llm_base,
                 )
                 if subsidiary_info:
                     console.print(f"  [green]종속 회사[/green]: {subsidiary_info}")
@@ -1359,6 +1504,7 @@ def run_pipeline(
     cumulative_row = build_cumulative_annual_row(quarterly_with_extra)
     if cumulative_row:
         annual_rows.insert(0, cumulative_row)
+    consensus_rows = build_consensus_rows(consensus_items, annual_statements)
     quarterly_rows = build_quarterly_rows(quarterly_statements)
     bs_rows = build_balance_sheet_rows(balance_sheet, prev_balance_sheet) if balance_sheet else []
 
@@ -1411,10 +1557,30 @@ def run_pipeline(
                     trailing_per_str = f"해당없음 ({stmt.period}년 순손실)"
                 break
 
-    # Estimated PER from research reports (if available)
+    # Consensus PER from Naver
+    consensus_per_str = ""
+    if market_cap_won > 0 and consensus_items:
+        current_year = datetime.now().year
+        for item in consensus_items:
+            try:
+                year = int(item.period[:4])
+            except (ValueError, IndexError):
+                continue
+            if year == current_year and item.net_income and item.net_income > 0:
+                per = market_cap_won / item.net_income
+                mc_eok_val = round(market_cap_won / 1_0000_0000)
+                ni_eok = round(item.net_income / 1_0000_0000)
+                consensus_per_str = (
+                    f"{per:.1f}배 (시가총액 {mc_eok_val:,} 억원 / "
+                    f"{year}E 순이익 {ni_eok:,} 억원)"
+                )
+                console.print(f"  [green]Consensus PER[/green]: {consensus_per_str}")
+                break
+
+    # Estimated PER from research reports (if available, fallback)
     per_str = ""
     analysis_cfg = company_config.analysis
-    if settings.openai_api_key and analysis_cfg.reports_dir and market_cap_won > 0:
+    if settings.llm_api_key and analysis_cfg.reports_dir and market_cap_won > 0:
         reports_dir = Path(analysis_cfg.reports_dir)
         if not reports_dir.is_absolute():
             reports_dir = project_root / reports_dir
@@ -1428,8 +1594,9 @@ def run_pipeline(
                     reports_dir=reports_dir,
                     company_name=company.name,
                     target_year=target_year,
-                    api_key=settings.openai_api_key,
-                    model=analysis_cfg.analysis_model or settings.openai_model,
+                    api_key=settings.llm_api_key,
+                    model=analysis_cfg.analysis_model or settings.llm_model,
+                    base_url=settings.llm_base_url,
                 )
                 if estimated_ni and estimated_ni > 0:
                     est_per = market_cap_won / estimated_ni
@@ -1456,7 +1623,7 @@ def run_pipeline(
     # ─── Phase 3.5: LLM analysis for sections 5-7 ───
     analysis_result = None
     sections_1_to_4 = ""
-    if settings.openai_api_key and analysis_cfg.prompt_file:
+    if settings.llm_api_key and analysis_cfg.prompt_file:
         prompt_path = project_root / analysis_cfg.prompt_file
         if prompt_path.exists():
             console.print("\n[dim]Running LLM analysis for sections 5-7...[/dim]")
@@ -1476,6 +1643,8 @@ def run_pipeline(
                     balance_sheet_prev_period=bs_prev_period,
                     balance_sheet_rows=bs_rows,
                     annual_rows=annual_rows,
+                    consensus_rows=consensus_rows,
+                    consensus_per_str=consensus_per_str,
                     quarterly_rows=quarterly_rows,
                     business_model=business_summary.business_model if business_summary else "",
                     major_customers=business_summary.major_customers if business_summary else "",
@@ -1495,15 +1664,16 @@ def run_pipeline(
                 if news_file and not news_file.is_absolute():
                     news_file = project_root / news_file
 
-                analysis_model = analysis_cfg.analysis_model or settings.openai_model
+                analysis_model = analysis_cfg.analysis_model or settings.llm_model
                 analysis_result = generate_analysis(
                     company_name=company.name,
                     report_sections_1_to_4=sections_1_to_4,
                     prompt_template=prompt_template,
-                    api_key=settings.openai_api_key,
+                    api_key=settings.llm_api_key,
                     model=analysis_model,
                     reports_dir=reports_dir,
                     news_file=news_file,
+                    base_url=settings.llm_base_url,
                 )
                 console.print("  [green]Analysis sections generated[/green]")
             except Exception as e:
@@ -1514,7 +1684,7 @@ def run_pipeline(
 
     # ─── Phase 3.7: Feedback loop - supplement Value Driver & 경쟁사 비교 ───
     if (
-        settings.openai_api_key
+        settings.llm_api_key
         and analysis_result
         and (not analysis_result.value_driver or not analysis_result.competitor_comparison)
     ):
@@ -1531,14 +1701,15 @@ def run_pipeline(
             if news_file_fb and not news_file_fb.is_absolute():
                 news_file_fb = project_root / news_file_fb
 
-            sup_model = analysis_cfg.analysis_model or settings.openai_model
+            sup_model = analysis_cfg.analysis_model or settings.llm_model
             vd_sup, cc_sup = supplement_value_driver_and_competitors(
                 company_name=company.name,
                 report_sections_1_to_4=sections_1_to_4,
-                api_key=settings.openai_api_key,
+                api_key=settings.llm_api_key,
                 model=sup_model,
                 reports_dir=reports_dir_fb,
                 news_file=news_file_fb,
+                base_url=settings.llm_base_url,
             )
             if not analysis_result.value_driver and vd_sup:
                 analysis_result.value_driver = vd_sup
@@ -1552,7 +1723,7 @@ def run_pipeline(
 
     # ─── Phase 3.8: Feedback loop - generate momentum text ───
     momentum_text = ""
-    if settings.openai_api_key and price_history:
+    if settings.llm_api_key and price_history:
         console.print("[dim]Generating momentum text...[/dim]")
         try:
             from auto_reports.summarizers.analysis_summarizer import generate_momentum_text
@@ -1570,10 +1741,11 @@ def run_pipeline(
             momentum_text = generate_momentum_text(
                 company_name=company.name,
                 report_sections_1_to_4=sections_ctx,
-                api_key=settings.openai_api_key,
-                model=analysis_cfg.analysis_model or settings.openai_model,
+                api_key=settings.llm_api_key,
+                model=analysis_cfg.analysis_model or settings.llm_model,
                 reports_dir=reports_dir_m,
                 news_file=news_file_m,
+                base_url=settings.llm_base_url,
             )
             if momentum_text:
                 console.print("  [green]Momentum text generated[/green]")
@@ -1715,6 +1887,8 @@ def run_pipeline(
         balance_sheet_prev_period=bs_prev_period,
         balance_sheet_rows=bs_rows,
         annual_rows=annual_rows,
+        consensus_rows=consensus_rows,
+        consensus_per_str=consensus_per_str,
         quarterly_rows=quarterly_rows,
         business_model=business_summary.business_model if business_summary else "",
         major_customers=business_summary.major_customers if business_summary else "",
@@ -1722,6 +1896,7 @@ def run_pipeline(
         revenue_breakdown=business_summary.revenue_breakdown if business_summary else "",
         order_backlog=business_summary.order_backlog if business_summary else "",
         exchange_contracts=exchange_contracts,
+        exchange_forecasts=exchange_forecasts,
         business_source=business_summary.report_source if business_summary else "",
         # Sections 4 additions + 5-7 from analysis
         value_driver=analysis_result.value_driver if analysis_result else "",
@@ -1734,7 +1909,7 @@ def run_pipeline(
     )
 
     # ─── Phase 4.5: Generate tags via LLM ───
-    if settings.openai_api_key:
+    if settings.llm_api_key:
         console.print("[dim]Generating tags...[/dim]")
         llm_tags = generate_report_tags(
             company_name=company.name,
@@ -1742,8 +1917,9 @@ def run_pipeline(
             revenue_breakdown=report_data.revenue_breakdown,
             investment_ideas=report_data.investment_ideas,
             conclusion=report_data.conclusion,
-            api_key=settings.openai_api_key,
-            model=settings.openai_model,
+            api_key=settings.llm_api_key,
+            model=settings.llm_model,
+            base_url=settings.llm_base_url,
         )
         if llm_tags:
             # Merge: keep existing manual tags, append new LLM tags (deduplicated)
@@ -1772,5 +1948,25 @@ def run_pipeline(
 
     if errors:
         console.print(f"\n[yellow]Warning: {len(errors)} disclosure URLs failed to parse.[/yellow]")
+
+    # ─── Partial failure detection: check for empty LLM sections ───
+    empty_sections: list[str] = []
+    if settings.llm_api_key:
+        if not report_data.business_model:
+            empty_sections.append("사업모델")
+        if not report_data.revenue_breakdown:
+            empty_sections.append("부문별매출")
+        if not report_data.investment_ideas:
+            empty_sections.append("투자아이디어")
+        if not report_data.conclusion:
+            empty_sections.append("결론")
+    if empty_sections:
+        console.print(
+            f"[yellow]Warning: {len(empty_sections)} LLM section(s) empty "
+            f"(possible rate limit): {', '.join(empty_sections)}[/yellow]"
+        )
+        logger.warning(
+            "Empty LLM sections for %s: %s", company.name, ", ".join(empty_sections),
+        )
 
     return result_path

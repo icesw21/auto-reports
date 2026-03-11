@@ -8,13 +8,12 @@ from __future__ import annotations
 
 import logging
 import re
-import time
 import urllib.parse
 
 import OpenDartReader
-import requests
 from bs4 import BeautifulSoup, Tag
 
+from auto_reports.fetchers.rate_limiter import dart_call_with_retry, dart_get_with_retry
 from auto_reports.models.financial import BalanceSheet, IncomeStatementItem
 
 logger = logging.getLogger(__name__)
@@ -55,8 +54,10 @@ _BS_FIELDS: dict[str, list[str]] = {
     "cash_and_equivalents": ["현금및현금성자산"],
     "short_term_investments": ["단기금융상품"],
     "total_liabilities": ["부채총계"],
-    "short_term_borrowings": ["단기차입금"],
+    "short_term_borrowings": ["단기차입금", "차입금"],
     "current_long_term_debt": ["유동성장기부채", "유동성장기차입금"],
+    "current_bonds": ["유동성사채"],
+    "long_term_borrowings": ["장기차입금"],
     "bonds": ["사채"],
     "total_equity": ["자본총계"],
 }
@@ -117,8 +118,43 @@ def _is_amount_cell(text: str) -> bool:
 # ── Table identification ──
 
 
+def _is_non_krw_unit(header_table: Tag) -> bool:
+    """Check if a header table indicates a non-KRW currency unit (e.g. USD).
+
+    DART reports for companies with foreign operations may include
+    financial statements in multiple currencies.  We skip non-KRW tables.
+    """
+    text = _WHITESPACE_RE.sub("", header_table.get_text())
+    # Common non-KRW unit markers: (단위:USD), (단위:달러), (단위:미국달러)
+    if "USD" in text or "달러" in text:
+        return True
+    return False
+
+
+def _detect_unit_multiplier(header_table: Tag) -> int:
+    """Detect the monetary unit from a header table and return the multiplier.
+
+    DART reports declare their unit as (단위: 원), (단위: 천원), (단위: 백만원).
+    Returns the multiplier to convert to 원: 1 (원), 1_000 (천원), 1_000_000 (백만원).
+    """
+    text = _WHITESPACE_RE.sub("", header_table.get_text())
+    if "백만원" in text:
+        return 1_000_000
+    if "천원" in text:
+        return 1_000
+    # 억원 is rare but possible
+    if "억원" in text:
+        return 1_0000_0000
+    return 1
+
+
 def _identify_table_type(header_table: Tag) -> str | None:
-    """Identify a header table's financial statement type."""
+    """Identify a header table's financial statement type.
+
+    Returns None for non-KRW tables so they are skipped.
+    """
+    if _is_non_krw_unit(header_table):
+        return None
     text = _WHITESPACE_RE.sub("", header_table.get_text())
     if "재무상태표" in text:
         return "BS"
@@ -157,6 +193,7 @@ def _identify_by_content(data_table: Tag) -> str | None:
 
 _SUBSTRING_EXCLUSIONS: dict[str, list[str]] = {
     "사채": ["유동성", "전환", "할인", "할증", "상환", "교환"],
+    "차입금": ["장기"],
     "자본총계": ["부채"],
     "부채총계": ["자본"],
 }
@@ -227,12 +264,16 @@ def _parse_data_table(
         found_count = 0
         for cell in cells[1:]:
             cleaned = cell.strip().replace("\xa0", "").replace(" ", "")
-            if not cleaned:
-                continue  # Skip genuinely empty cells
             # Short integers without commas are likely note references (e.g. "15")
             if len(cleaned) <= 4 and "," not in cleaned and cleaned.isdigit():
                 continue
-            if _is_amount_cell(cell):
+            if not cleaned:
+                # Blank cell counts as a valid column position (value = None)
+                if found_count == amount_col:
+                    amount = None
+                    break
+                found_count += 1
+            elif _is_amount_cell(cell):
                 if found_count == amount_col:
                     amount = _parse_report_amount(cell)
                     break
@@ -302,11 +343,10 @@ class DartReportFetcher:
             return None
 
         try:
-            df = self.dart.list(corp, start=start, end=end, kind="A")
+            df = dart_call_with_retry(self.dart.list, corp, start=start, end=end, kind="A")
         except Exception:
             logger.exception("dart.list failed for %s", corp)
             return None
-        time.sleep(self.delay)
 
         if df is None or df.empty:
             return None
@@ -344,11 +384,10 @@ class DartReportFetcher:
         Prefers consolidated (연결) or individual (별도) based on fs_pref.
         """
         try:
-            docs = self.dart.sub_docs(rcept_no)
+            docs = dart_call_with_retry(self.dart.sub_docs, rcept_no)
         except Exception:
             logger.exception("sub_docs failed for %s", rcept_no)
             return None
-        time.sleep(self.delay)
 
         if docs is None or docs.empty:
             return None
@@ -397,7 +436,7 @@ class DartReportFetcher:
             return None
 
         try:
-            r = requests.get(chosen_url, timeout=15)
+            r = dart_get_with_retry(chosen_url, timeout=15)
             r.raise_for_status()
             r.encoding = "utf-8"
             return r.text, stmt_type
@@ -433,19 +472,26 @@ class DartReportFetcher:
             # Strategy 1: identify by header keywords
             table_type = _identify_table_type(tables[i])
             if table_type and table_type not in result:
+                unit_multiplier = _detect_unit_multiplier(tables[i])
                 col = is_amount_col if table_type == "IS" else 0
                 data = _parse_data_table(tables[i + 1], amount_col=col)
+                if data and unit_multiplier > 1:
+                    data = [(name, amt * unit_multiplier if amt is not None else None) for name, amt in data]
                 if data:
                     result[table_type] = data
                 i += 2
                 continue
 
             # Strategy 2: identify by data table content
-            if not table_type:
+            # Skip if header was explicitly non-KRW (USD/달러)
+            if not table_type and not _is_non_krw_unit(tables[i]):
                 table_type = _identify_by_content(tables[i + 1])
                 if table_type and table_type not in result:
+                    unit_multiplier = _detect_unit_multiplier(tables[i])
                     col = is_amount_col if table_type == "IS" else 0
                     data = _parse_data_table(tables[i + 1], amount_col=col)
+                    if data and unit_multiplier > 1:
+                        data = [(name, amt * unit_multiplier if amt is not None else None) for name, amt in data]
                     if data:
                         result[table_type] = data
                     i += 2

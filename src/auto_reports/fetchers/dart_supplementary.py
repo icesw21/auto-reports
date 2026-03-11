@@ -8,11 +8,10 @@ from __future__ import annotations
 
 import logging
 import re
-import time
-
 import OpenDartReader
-import requests
 from bs4 import BeautifulSoup
+
+from auto_reports.fetchers.rate_limiter import dart_call_with_retry, dart_get_with_retry
 
 logger = logging.getLogger(__name__)
 
@@ -43,11 +42,10 @@ class DartSupplementaryFetcher:
         end = today.strftime("%Y%m%d")
 
         try:
-            df = self.dart.list(corp, start=start, end=end, kind="A")
+            df = dart_call_with_retry(self.dart.list, corp, start=start, end=end, kind="A")
         except Exception:
             logger.exception("dart.list failed for %s", corp)
             return None
-        time.sleep(self.delay)
 
         if df is None or df.empty:
             return None
@@ -77,11 +75,10 @@ class DartSupplementaryFetcher:
     def _fetch_sub_docs(self, rcept_no: str) -> dict[str, str]:
         """Fetch sub_docs for a report and build title->url map."""
         try:
-            docs = self.dart.sub_docs(rcept_no)
+            docs = dart_call_with_retry(self.dart.sub_docs, rcept_no)
         except Exception:
             logger.exception("sub_docs failed for %s", rcept_no)
             return {}
-        time.sleep(self.delay)
 
         if docs is None or docs.empty:
             return {}
@@ -98,7 +95,7 @@ class DartSupplementaryFetcher:
     def _fetch_section_text(self, url: str) -> str:
         """Fetch section HTML and return clean text."""
         try:
-            r = requests.get(url, timeout=15)
+            r = dart_get_with_retry(url, timeout=15)
             r.raise_for_status()
             r.encoding = "utf-8"
             soup = BeautifulSoup(r.text, "html.parser")
@@ -158,7 +155,6 @@ class DartSupplementaryFetcher:
         if shareholder_url:
             result["shareholder"] = self._fetch_section_text(shareholder_url)
             logger.info("Fetched shareholder section: %d chars", len(result["shareholder"]))
-            time.sleep(self.delay)
 
         # 2. Dividend: III. 재무에 관한 사항 - 6. 배당에 관한 사항
         dividend_url = self._find_section_url(title_url_map, [
@@ -167,7 +163,6 @@ class DartSupplementaryFetcher:
         if dividend_url:
             result["dividend"] = self._fetch_section_text(dividend_url)
             logger.info("Fetched dividend section: %d chars", len(result["dividend"]))
-            time.sleep(self.delay)
 
         # 3. Subsidiary: XII. 상세표 - 1. 연결대상 종속회사 현황
         subsidiary_url = self._find_section_url(title_url_map, [
@@ -177,6 +172,5 @@ class DartSupplementaryFetcher:
         if subsidiary_url:
             result["subsidiary"] = self._fetch_section_text(subsidiary_url)
             logger.info("Fetched subsidiary section: %d chars", len(result["subsidiary"]))
-            time.sleep(self.delay)
 
         return result

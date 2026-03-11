@@ -316,7 +316,7 @@ class TestGetOverhangFromNotes:
             for title, url in sections
         ])
 
-    @patch("auto_reports.fetchers.opendart.requests.get")
+    @patch("auto_reports.fetchers.opendart.dart_get_with_retry")
     def test_full_flow(self, mock_requests_get):
         """Full flow: find report → fetch notes → parse → return active."""
         fetcher = _make_fetcher()
@@ -366,7 +366,7 @@ class TestGetOverhangFromNotes:
         assert results == []
         assert ref_date == ""
 
-    @patch("auto_reports.fetchers.opendart.requests.get")
+    @patch("auto_reports.fetchers.opendart.dart_get_with_retry")
     def test_no_notes_section(self, mock_requests_get):
         """Report exists but no notes section → return empty."""
         fetcher = _make_fetcher()
@@ -380,7 +380,7 @@ class TestGetOverhangFromNotes:
         results, ref_date = fetcher.get_overhang_from_notes("00126380")
         assert results == []
 
-    @patch("auto_reports.fetchers.opendart.requests.get")
+    @patch("auto_reports.fetchers.opendart.dart_get_with_retry")
     def test_filters_inactive_instruments(self, mock_requests_get):
         """Only active instruments are returned."""
         fetcher = _make_fetcher()
@@ -420,7 +420,7 @@ class TestGetOverhangFromNotes:
         assert results[0]["series"] == 2
         assert results[0]["active"] is True
 
-    @patch("auto_reports.fetchers.opendart.requests.get")
+    @patch("auto_reports.fetchers.opendart.dart_get_with_retry")
     def test_api_error_graceful(self, mock_requests_get):
         """DART API error → return empty."""
         fetcher = _make_fetcher()
@@ -430,7 +430,7 @@ class TestGetOverhangFromNotes:
         assert results == []
         assert ref_date == ""
 
-    @patch("auto_reports.fetchers.opendart.requests.get")
+    @patch("auto_reports.fetchers.opendart.dart_get_with_retry")
     def test_prefers_standalone_notes(self, mock_requests_get):
         """When both consolidated and standalone notes exist, prefer standalone."""
         fetcher = _make_fetcher()
@@ -477,7 +477,7 @@ class TestGetOverhangFromNotes:
 class TestFullIntegration:
     """End-to-end: notes HTML → parse → analyzer → report items."""
 
-    @patch("auto_reports.fetchers.opendart.requests.get")
+    @patch("auto_reports.fetchers.opendart.dart_get_with_retry")
     def test_notes_to_report_items(self, mock_requests_get):
         """Full pipeline: DART notes → OverhangAnalyzer → OverhangItem."""
         fetcher = _make_fetcher()
@@ -589,7 +589,7 @@ class TestParseReferenceDate:
 class TestGetOverhangFromNotesReferenceDate:
     """Test that get_overhang_from_notes returns correct reference_date."""
 
-    @patch("auto_reports.fetchers.opendart.requests.get")
+    @patch("auto_reports.fetchers.opendart.dart_get_with_retry")
     def test_returns_reference_date_for_q3(self, mock_requests_get):
         fetcher = _make_fetcher()
         fetcher.dart.list.return_value = pd.DataFrame([
@@ -618,7 +618,7 @@ class TestGetOverhangFromNotesReferenceDate:
         assert ref_date == "20250930"
         assert len(results) == 1
 
-    @patch("auto_reports.fetchers.opendart.requests.get")
+    @patch("auto_reports.fetchers.opendart.dart_get_with_retry")
     def test_returns_reference_date_for_annual(self, mock_requests_get):
         fetcher = _make_fetcher()
         fetcher.dart.list.return_value = pd.DataFrame([
@@ -655,7 +655,7 @@ class TestGetOverhangFromNotesReferenceDate:
 class TestGetOverhangIssuancesAfterDate:
     """Test that get_overhang_issuances uses after_date to set bgn_de."""
 
-    @patch("auto_reports.fetchers.opendart.requests.get")
+    @patch("auto_reports.fetchers.opendart.dart_get_with_retry")
     def test_after_date_sets_bgn_de(self, mock_requests_get):
         """When after_date is provided, bgn_de is set to after_date + 1 day."""
         fetcher = _make_fetcher()
@@ -673,7 +673,7 @@ class TestGetOverhangIssuancesAfterDate:
         first_params = calls[0].kwargs.get("params") or calls[0][1].get("params", {})
         assert first_params["bgn_de"] == "20251001"
 
-    @patch("auto_reports.fetchers.opendart.requests.get")
+    @patch("auto_reports.fetchers.opendart.dart_get_with_retry")
     def test_no_after_date_uses_default(self, mock_requests_get):
         """When after_date is empty, uses start_year-based bgn_de."""
         fetcher = _make_fetcher()
@@ -807,7 +807,7 @@ class TestParseIssuanceItemCB:
 class TestPhase3bFullFlow:
     """Test the full Phase 3b flow with mocked API responses (앱클론-like data)."""
 
-    @patch("auto_reports.fetchers.opendart.requests.get")
+    @patch("auto_reports.fetchers.opendart.dart_get_with_retry")
     def test_piic_and_cb_produce_overhang_items(self, mock_requests_get):
         """piicDecsn + cvbdIsDecsn → OverhangAnalyzer produces correct items."""
         fetcher = _make_fetcher()
@@ -880,7 +880,7 @@ class TestPhase3bFullFlow:
         assert cb_item.exercise_price == "18,223원"
         assert "2026.10.28" in (cb_item.exercise_period or "")
 
-    @patch("auto_reports.fetchers.opendart.requests.get")
+    @patch("auto_reports.fetchers.opendart.dart_get_with_retry")
     def test_phase3a_and_3b_combined(self, mock_requests_get):
         """Phase 3a notes + Phase 3b DS005 → 4 distinct overhang items."""
         analyzer = OverhangAnalyzer(total_shares=19_925_510)

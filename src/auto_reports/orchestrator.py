@@ -183,7 +183,7 @@ def run_collect(
                 try:
                     name, success = future.result()
                     results[name] = success
-                except Exception as e:
+                except Exception:
                     name = future_to_name[future]
                     logger.exception(f"Unexpected error for {name}")
                     results[name] = False
@@ -191,9 +191,9 @@ def run_collect(
     # Summary
     success_count = sum(1 for v in results.values() if v)
     failed_count = sum(1 for v in results.values() if not v)
-    console.print(f"\n{'═' * 60}")
+    console.print(f"\n{'=' * 60}")
     console.print(f"[bold]Collection Summary: {success_count} success, {failed_count} failed[/bold]")
-    console.print(f"{'═' * 60}")
+    console.print(f"{'=' * 60}")
 
     logger.info(f"=== Collection complete: {total} companies ===")
     return results
@@ -436,14 +436,19 @@ def run_batch_all(
                     results[idx] = (name, None, str(e))
 
     # Summary
-    console.print(f"\n{'═' * 60}")
+    console.print(f"\n{'=' * 60}")
     console.print("[bold]Batch Summary[/bold]\n")
     success = sum(1 for _, p, e in results if p and not e)
     failed = sum(1 for _, _, e in results if e)
+    no_output = sum(1 for _, p, e in results if not p and not e)
     console.print(f"  Total: {len(results)}, Success: {success}, Failed: {failed}")
+    if no_output:
+        console.print(f"  [yellow]No output: {no_output}[/yellow]")
     for name, path, error in results:
         if error:
             console.print(f"  [red]x[/red] {name}: {error}")
+        elif not path:
+            console.print(f"  [yellow]-[/yellow] {name}: No output")
         else:
             console.print(f"  [green]v[/green] {name}: {path}")
     console.print()
@@ -477,13 +482,13 @@ def run_analyze(
     # Summary
     success_reports = sum(1 for _, p, e in results if p and not e)
     failed = sum(1 for _, _, e in results if e)
-    console.print(f"\n{'═' * 60}")
+    console.print(f"\n{'=' * 60}")
     console.print("[bold green]Analysis complete![/bold green]")
     console.print(f"  Configs: {created}")
     console.print(f"  Reports: {success_reports}/{len(results)} (failed: {failed})")
     if settings.obsidian_inbox and not no_copy:
         console.print(f"  Output: {settings.obsidian_inbox}")
-    console.print(f"{'═' * 60}\n")
+    console.print(f"{'=' * 60}\n")
 
     logger.info("Analysis pipeline complete")
 
@@ -528,7 +533,7 @@ def run_full_pipeline(
     )
 
     # Final summary
-    console.print(f"\n{'═' * 60}")
+    console.print(f"\n{'=' * 60}")
     console.print("[bold green]Pipeline complete![/bold green]")
     console.print(f"  Collected: {success_count}/{len(collect_results)} companies")
     console.print(f"  Configs: {created}")
@@ -536,6 +541,6 @@ def run_full_pipeline(
     console.print(f"  Reports: {success_reports}/{len(results)}")
     if settings.obsidian_inbox and not no_copy:
         console.print(f"  Output: {settings.obsidian_inbox}")
-    console.print(f"{'═' * 60}\n")
+    console.print(f"{'=' * 60}\n")
 
     logger.info("Full pipeline complete")

@@ -1,0 +1,13 @@
+company:
+  name: 에스티큐브
+  ticker: '052020'
+  tags: []
+report:
+  output_dir: ''
+  years: 5
+  quarters: 8
+  statement_type: 연결
+disclosures:
+  exchange_disclosures_file: C:/OneDrive/stocks/에스티큐브/에스티큐브_exchange_disclosure.json
+analysis:
+  reports_dir: C:/OneDrive/stocks/에스티큐브/reports

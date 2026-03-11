@@ -1,0 +1,14 @@
+company:
+  name: 인텔리안테크
+  ticker: '189300'
+  tags: []
+report:
+  output_dir: ''
+  years: 5
+  quarters: 8
+  statement_type: 연결
+disclosures:
+  exchange_disclosures_file: C:/OneDrive/stocks/인텔리안테크/인텔리안테크_exchange_disclosure.json
+analysis:
+  reports_dir: C:/OneDrive/stocks/인텔리안테크/reports
+  news_file: C:/OneDrive/stocks/인텔리안테크/인텔리안테크_news_20260307.json

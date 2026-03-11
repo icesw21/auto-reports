@@ -1,0 +1,14 @@
+company:
+  name: RF머트리얼즈
+  ticker: '327260'
+  tags: []
+report:
+  output_dir: ''
+  years: 5
+  quarters: 8
+  statement_type: 연결
+disclosures:
+  exchange_disclosures_file: C:/OneDrive/stocks/RF머트리얼즈/RF머트리얼즈_exchange_disclosure.json
+analysis:
+  reports_dir: C:/OneDrive/stocks/RF머트리얼즈/reports
+  news_file: C:/OneDrive/stocks/RF머트리얼즈/RF머트리얼즈_news_20260307.json

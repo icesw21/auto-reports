@@ -1,0 +1,14 @@
+company:
+  name: 이오테크닉스
+  ticker: 039030
+  tags: []
+report:
+  output_dir: ''
+  years: 5
+  quarters: 8
+  statement_type: 연결
+disclosures:
+  exchange_disclosures_file: C:/OneDrive/stocks/이오테크닉스/이오테크닉스_exchange_disclosure.json
+analysis:
+  reports_dir: C:/OneDrive/stocks/이오테크닉스/reports
+  news_file: C:/OneDrive/stocks/이오테크닉스/이오테크닉스_news_20260305.json

@@ -7,16 +7,77 @@ import re
 import time
 from dataclasses import dataclass
 
-from openai import OpenAI
+from openai import OpenAI, RateLimitError
+
+from auto_reports.fetchers.rate_limiter import get_llm_limiter
 
 logger = logging.getLogger(__name__)
+
+
+def _detect_revenue_unit(text: str) -> str:
+    """Detect monetary unit from DART revenue section text.
+
+    Looks for patterns like '(단위: 천원)', '(단위 : 백만원)' etc.
+    Returns '천원', '백만원', '억원', or '백만원' as default.
+    """
+    m = re.search(r"단위\s*[:：]\s*(천원|백만원|억원)", text)
+    if m:
+        return m.group(1)
+    return "백만원"
+
+
+def _strip_revenue_summary(text: str) -> str:
+    """Remove aggregate summary rows from DART revenue table.
+
+    Revenue tables often end with a 합계/총계 section that re-aggregates
+    data by segment (e.g., EV Components total across 제품+상품).
+    This causes the LLM to use aggregated values instead of the detailed
+    per-type breakdown. Stripping the summary forces the LLM to work
+    with individual 제품/상품/기타매출 rows only.
+    """
+    lines = text.split('\n')
+
+    # Find last 소계 (subtotal within individual sections)
+    last_subtotal = -1
+    for i, line in enumerate(lines):
+        if line.strip() == '소계':
+            last_subtotal = i
+
+    if last_subtotal < 0:
+        return text
+
+    # Find first standalone "합계" after the last 소계 (summary section header)
+    # Use prefix match to also catch "합계  88,197" on a single line.
+    summary_start = None
+    for i in range(last_subtotal + 1, len(lines)):
+        if re.match(r'^합계\b', lines[i].strip()):
+            summary_start = i
+            break
+
+    if summary_start is None:
+        return text
+
+    # Find next Korean section header (나., 다., 라., etc.) or end.
+    # If no header follows, everything after summary_start is stripped.
+    section_end = len(lines)
+    for i in range(summary_start + 1, len(lines)):
+        if re.match(r'^[가-힣]\.\s', lines[i].strip()):
+            section_end = i
+            break
+
+    logger.debug(
+        "Stripped revenue summary: lines %d-%d (of %d)",
+        summary_start, section_end, len(lines),
+    )
+    return '\n'.join(lines[:summary_start] + lines[section_end:])
+
 
 _SYSTEM_PROMPT = """\
 당신은 한국 상장기업의 사업보고서를 분석하는 금융 애널리스트입니다.
 사업보고서의 특정 섹션 원문을 받아, 투자 분석에 필요한 핵심 내용만 간결하게 요약합니다.
 - 불필요한 수식어 제거, 핵심 팩트 중심
 - 테이블 데이터는 마크다운 테이블로 정리
-- 금액은 억원 단위로 통일하여 표기 (백만원이면 100으로 나누어 반올림, 천원이면 10만으로 나누어 반올림)
+- 금액은 억원 단위로 통일하여 표기 (천원이면 100,000으로, 백만원이면 100으로 나누어 반올림)
 - 주요 고객사/매입처 이름이 비공개(A사 등)면 그대로 유지
 - 모든 문장은 반드시 명사형 어미로 종결 (예: ~임, ~함, ~중, ~있음, ~됨). 동사형/형용사형 어미(~한다, ~이다, ~하고 있다) 사용 금지
 """
@@ -41,6 +102,7 @@ def summarize_business_sections(
     매출수주: str,
     api_key: str,
     model: str = "",
+    base_url: str = "",
 ) -> BusinessSummary:
     """Summarize business sections using OpenAI.
 
@@ -57,7 +119,10 @@ def summarize_business_sections(
     """
     if not model:
         model = "gpt-4.1-mini"
-    client = OpenAI(api_key=api_key, max_retries=5)
+    client = OpenAI(
+        api_key=api_key, max_retries=5,
+        **({"base_url": base_url} if base_url else {}),
+    )
     summary = BusinessSummary()
 
     # 1. Business model (사업개요 + 주요제품)
@@ -84,7 +149,7 @@ def summarize_business_sections(
 
 위 내용에서 핵심 원재료와 주요 공급업체를 자회사/사업부문별로 `- ` 불릿 리스트로 작성해주세요.
 같은 사업부문의 품목은 한 줄에 쉼표로 나열하고, '기타' 항목은 생략하되 마지막에 '등'을 붙여주세요.
-금액은 억원 단위로 변환하여 표기하세요 (백만원이면 100으로, 천원이면 10만으로 나누어 반올림).
+금액은 억원 단위로 변환하여 표기하세요 (천원이면 100,000으로, 백만원이면 100으로 나누어 반올림).
 형식 예시:
 - 자회사A: 원재료1 금액억원(업체명, 비중%), 원재료2 금액억원(업체명, 비중%) 등
 - 자회사B: 원재료1 금액억원(업체명, 비중%) 등"""
@@ -93,6 +158,26 @@ def summarize_business_sections(
 
     # 3. Major customers + revenue breakdown + order backlog (매출수주)
     if 매출수주:
+        # Strip trailing summary/aggregate section to prevent LLM from
+        # using pre-aggregated totals instead of per-type breakdown.
+        매출수주 = _strip_revenue_summary(매출수주)
+        # Detect unit for explicit conversion guidance
+        unit = _detect_revenue_unit(매출수주)
+        if unit == "천원":
+            conv_rule = (
+                "원문의 금액 단위: 천원\n"
+                "  → 억원 변환법: 숫자 ÷ 100,000 후 반올림\n"
+                "  → 예시: 1,192,400 (천원) ÷ 100,000 = 12 (억원)"
+            )
+        elif unit == "억원":
+            conv_rule = "원문의 금액 단위: 억원 (변환 불필요, 그대로 사용)"
+        else:  # 백만원
+            conv_rule = (
+                "원문의 금액 단위: 백만원\n"
+                "  → 억원 변환법: 숫자 ÷ 100 후 반올림\n"
+                "  → 예시: 1,192 (백만원) ÷ 100 = 12 (억원)"
+            )
+
         prompt = f"""다음은 사업보고서의 '매출 및 수주상황' 섹션입니다.
 
 {매출수주[:4000]}
@@ -109,8 +194,13 @@ def summarize_business_sections(
 [부문별 매출]
 가장 최근 기수(期)의 데이터만 사용하여 아래 형식의 마크다운 테이블로 작성하세요.
 - 여러 기간의 데이터가 있으면 가장 최근 기수만 사용
-- 금액은 억원 단위로 변환 (백만원 단위면 100으로 나누어 소수점 첫째자리에서 반올림)
-- 비중(%): 원문에 비중 데이터가 있으면 그대로 사용, 없으면 직접 계산 (각 부문 매출액 ÷ 합계 × 100, 소수점 첫째자리까지)
+- {conv_rule}
+- 비중(%): 원문의 비중/% 컬럼은 무시할 것. 반드시 변환된 억원 매출액만 사용하여 재계산:
+  비중(%) = 해당 품목 억원 매출액 ÷ (모든 개별 품목 억원 매출액의 합산) × 100, 소수점 첫째자리
+  ※ 주의: 합계 행의 비중(100%)이나 원문의 비중 수치로 나누지 말 것
+- 동일 품목이 내수/수출로 분리된 경우 합산하여 하나의 행으로 표시 (예: 철탑(내수)+철탑(수출) → 철탑)
+- 품목명에서 (내수), (수출) 등 판매경로 표기는 제거
+- 매출 유형 구분: 제품매출은 해당 사업부문으로, 상품매출은 '상품', 용역/공사매출은 '기타'로 구분
 - 합계 행 포함
 
 | 사업부문 | 품목 | 매출액(억원) | 비중(%) |
@@ -118,7 +208,7 @@ def summarize_business_sections(
 
 [수주잔고]
 (수주 현황이 있으면 요약, 없으면 "해당사항 없음")
-- 금액은 억원 단위로 변환 (백만원 단위면 100으로 나누어 소수점 첫째자리에서 반올림)"""
+- {conv_rule}"""
 
         result = _call_llm(client, model, prompt)
         # Parse the structured response
@@ -131,7 +221,8 @@ def summarize_business_sections(
 
 
 def _call_llm(client: OpenAI, model: str, prompt: str) -> str:
-    """Make an OpenAI API call with error handling."""
+    """Make an OpenAI API call with error handling and rate limit retry."""
+    get_llm_limiter().wait()
     try:
         response = client.chat.completions.create(
             model=model,
@@ -140,10 +231,34 @@ def _call_llm(client: OpenAI, model: str, prompt: str) -> str:
                 {"role": "user", "content": prompt},
             ],
             temperature=0.3,
-            max_tokens=1000,
+            max_tokens=1500,
         )
         content = response.choices[0].message.content
         return (content or "").strip()
+    except RateLimitError as e:
+        logger.warning("LLM rate limited (model=%s): %s — retrying with backoff", model, e)
+        for attempt in range(3):
+            wait_time = 2 ** (attempt + 1)
+            time.sleep(wait_time)
+            get_llm_limiter().wait()
+            try:
+                response = client.chat.completions.create(
+                    model=model,
+                    messages=[
+                        {"role": "system", "content": _SYSTEM_PROMPT},
+                        {"role": "user", "content": prompt},
+                    ],
+                    temperature=0.3,
+                    max_tokens=1500,
+                )
+                content = response.choices[0].message.content
+                return (content or "").strip()
+            except RateLimitError:
+                continue
+            except Exception:
+                break
+        logger.warning("LLM rate limit retries exhausted (model=%s)", model)
+        return ""
     except Exception as e:
         logger.warning("OpenAI API call failed (model=%s): %s", model, type(e).__name__)
         return ""
@@ -157,6 +272,7 @@ def generate_report_tags(
     conclusion: str,
     api_key: str,
     model: str = "",
+    base_url: str = "",
 ) -> list[str]:
     """Generate 3-5 Obsidian tags based on report content using LLM.
 
@@ -206,8 +322,12 @@ def generate_report_tags(
 위성영상
 K방산수출"""
 
-    client = OpenAI(api_key=api_key, max_retries=3)
+    client = OpenAI(
+        api_key=api_key, max_retries=3,
+        **({"base_url": base_url} if base_url else {}),
+    )
     try:
+        get_llm_limiter().wait()
         response = client.chat.completions.create(
             model=model,
             messages=[{"role": "user", "content": prompt}],
@@ -215,6 +335,26 @@ K방산수출"""
             max_tokens=200,
         )
         content = (response.choices[0].message.content or "").strip()
+    except RateLimitError as e:
+        logger.warning("Tag generation rate limited (model=%s): %s", model, e)
+        for attempt in range(3):
+            time.sleep(2 ** (attempt + 1))
+            get_llm_limiter().wait()
+            try:
+                response = client.chat.completions.create(
+                    model=model,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.3,
+                    max_tokens=200,
+                )
+                content = (response.choices[0].message.content or "").strip()
+                break
+            except RateLimitError:
+                continue
+            except Exception:
+                return []
+        else:
+            return []
     except Exception as e:
         logger.warning("Tag generation failed (model=%s): %s", model, type(e).__name__)
         return []

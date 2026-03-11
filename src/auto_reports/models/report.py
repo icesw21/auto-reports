@@ -98,6 +98,8 @@ class ReportData(BaseModel):
 
     # Section 3: 손익계산서
     annual_rows: list[AnnualRow] = Field(default_factory=list)
+    consensus_rows: list[AnnualRow] = Field(default_factory=list)
+    consensus_per_str: str = ""
     quarterly_rows: list[QuarterlyRow] = Field(default_factory=list)
     quarterly_note: str = ""
 
@@ -108,6 +110,7 @@ class ReportData(BaseModel):
     revenue_breakdown: str = ""
     order_backlog: str = ""
     exchange_contracts: list[ExchangeContract] = Field(default_factory=list)
+    exchange_forecasts: list[dict] = Field(default_factory=list)  # 실적전망 공정공시
     business_source: str = ""  # e.g. "사업보고서 (2024.12) 기준"
     value_driver: str = ""  # Value Driver analysis
     competitor_comparison: str = ""  # 경쟁사 비교

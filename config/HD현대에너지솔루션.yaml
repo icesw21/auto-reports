@@ -1,0 +1,14 @@
+company:
+  name: HD현대에너지솔루션
+  ticker: '322000'
+  tags: []
+report:
+  output_dir: ''
+  years: 5
+  quarters: 8
+  statement_type: 연결
+disclosures:
+  exchange_disclosures_file: C:/OneDrive/stocks/HD현대에너지솔루션/HD현대에너지솔루션_exchange_disclosure.json
+analysis:
+  reports_dir: C:/OneDrive/stocks/HD현대에너지솔루션/reports
+  news_file: C:/OneDrive/stocks/HD현대에너지솔루션/HD현대에너지솔루션_news_20260302.json

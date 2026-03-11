@@ -46,7 +46,7 @@ class OverhangAnalyzer:
         convertible_shares = 0
         if issuance.conversion_terms and issuance.conversion_terms.share_count:
             convertible_shares = issuance.conversion_terms.share_count
-        elif conversion_price and conversion_price > 0:
+        elif conversion_price and conversion_price >= 100:
             convertible_shares = face_value // conversion_price
 
         # Extract exercise period from conversion terms
@@ -107,7 +107,7 @@ class OverhangAnalyzer:
             conversion_price = event.get("conversion_price") or 0
             convertible_shares = event.get("convertible_shares") or 0
 
-            if not convertible_shares and conversion_price > 0:
+            if not convertible_shares and conversion_price >= 100:
                 convertible_shares = face_value // conversion_price
 
             cat_label = {
@@ -335,9 +335,40 @@ class OverhangAnalyzer:
         """Process exchange disclosure exercise data (행사 공시).
 
         Updates existing instruments with latest balance/price info from
-        KRX exchange disclosures (전환청구권행사, 신주인수권행사, etc.).
-        Handles both series-based (CB/BW) and date-based (전환주식) formats.
+        KRX exchange disclosures (전환청구권행사, 신주인수권행사, 주식매수선택권행사 etc.).
+        Handles series-based (CB/BW), date-based (전환주식), and stock option formats.
         """
+        # Stock option exercise: update SO instruments with remaining shares
+        so_remaining = data.get("so_remaining")
+        if so_remaining and data.get("type") == "주식매수선택권행사":
+            new_shares = so_remaining.get("new_shares", 0)
+            if new_shares > 0:
+                matched = False
+                for key, state in self._instruments.items():
+                    if state.category in ("주식매수선택권", "SO"):
+                        state.convertible_shares = new_shares
+                        logger.info(
+                            "Updated SO instrument %s with remaining shares: %d",
+                            key, new_shares,
+                        )
+                        matched = True
+                if not matched:
+                    # Create SO instrument from exchange exercise data
+                    self._instruments["SO_0"] = _InstrumentState(
+                        category="주식매수선택권",
+                        series=0,
+                        kind="",
+                        face_value=0,
+                        remaining=0,
+                        conversion_price=0,
+                        convertible_shares=new_shares,
+                    )
+                    logger.info(
+                        "Created SO instrument from exchange exercise: SO_0 (shares=%d)",
+                        new_shares,
+                    )
+            return
+
         for bal in data.get("cb_balance", []):
             series = bal.get("series")
 
@@ -359,10 +390,10 @@ class OverhangAnalyzer:
 
             if matched_key:
                 state = self._instruments[matched_key]
-                # Update remaining balance (face value)
-                face = bal.get("face_value")
-                if face is not None:
-                    state.remaining = face
+                # Update remaining balance: prefer 미잔액, fall back to 권면총액
+                remaining = bal.get("remaining") or bal.get("face_value")
+                if remaining is not None:
+                    state.remaining = remaining
                 # Update conversion price
                 cp = bal.get("conversion_price")
                 if cp is not None:
@@ -371,7 +402,31 @@ class OverhangAnalyzer:
                 cs = bal.get("convertible_shares") or bal.get("remaining_shares")
                 if cs is not None:
                     state.convertible_shares = cs
-                logger.debug("Updated instrument %s from exchange exercise", matched_key)
+                logger.debug(
+                    "Updated instrument %s: remaining=%s, conv_price=%s, shares=%s (bal=%s)",
+                    matched_key, state.remaining, state.conversion_price, state.convertible_shares, bal,
+                )
+            elif series is not None:
+                # Fallback: create instrument from cb_balance when notes parsing missed it
+                category = _infer_category_from_exercise(data.get("type", ""))
+                key = f"{category}_{series}"
+                remaining = bal.get("remaining") or bal.get("face_value") or 0
+                cp = bal.get("conversion_price") or 0
+                cs = bal.get("convertible_shares") or bal.get("remaining_shares") or 0
+                if remaining or cs:
+                    self._instruments[key] = _InstrumentState(
+                        category=category,
+                        series=series,
+                        kind=f"제{series}회",
+                        face_value=bal.get("face_value") or remaining,
+                        remaining=remaining,
+                        conversion_price=cp,
+                        convertible_shares=cs,
+                    )
+                    logger.info(
+                        "Created instrument from exchange exercise fallback: %s (shares=%d)",
+                        key, cs,
+                    )
             else:
                 logger.debug(
                     "No matching instrument for exchange exercise balance: series=%s",
@@ -392,12 +447,14 @@ class OverhangAnalyzer:
                 continue
 
             matched = False
+            matched_state = None
             if series is not None:
                 for key, state in self._instruments.items():
                     if state.series == series:
                         state.conversion_price = new_price
                         logger.debug("Updated price for %s: %d", key, new_price)
                         matched = True
+                        matched_state = state
                         break
             else:
                 # No-series format (전환주식): match by price_before
@@ -408,7 +465,19 @@ class OverhangAnalyzer:
                             state.conversion_price = new_price
                             logger.debug("Updated price for %s: %d (matched by old price)", key, new_price)
                             matched = True
+                            matched_state = state
                             break
+
+            # Recalculate convertible_shares from remaining/new_price
+            # when no explicit share_changes are provided
+            if matched_state and new_price and new_price >= 100 and matched_state.remaining:
+                new_shares = matched_state.remaining // new_price
+                if new_shares != matched_state.convertible_shares:
+                    logger.debug(
+                        "Recalculated shares for price adj: %d -> %d",
+                        matched_state.convertible_shares, new_shares,
+                    )
+                    matched_state.convertible_shares = new_shares
 
             if not matched:
                 logger.debug("No matching instrument for price adj: series=%s", series)
@@ -542,6 +611,13 @@ class OverhangAnalyzer:
         if self.total_shares <= 0:
             return 0.0
         return (total_dilutive / self.total_shares) * 100
+
+
+def _infer_category_from_exercise(exercise_type: str) -> str:
+    """Infer instrument category (CB/BW) from exercise disclosure type."""
+    if "신주인수권" in exercise_type:
+        return "BW"
+    return "CB"
 
 
 class _InstrumentState:

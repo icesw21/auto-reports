@@ -1,0 +1,14 @@
+company:
+  name: ISC
+  ticker: 095340
+  tags: []
+report:
+  output_dir: ''
+  years: 5
+  quarters: 8
+  statement_type: 연결
+disclosures:
+  exchange_disclosures_file: C:/OneDrive/stocks/ISC/ISC_exchange_disclosure.json
+analysis:
+  reports_dir: C:/OneDrive/stocks/ISC/reports
+  news_file: C:/OneDrive/stocks/ISC/ISC_news_20260306.json

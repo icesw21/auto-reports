@@ -39,6 +39,7 @@ class Settings(BaseSettings):
         "사업보고서;분기보고서;반기보고서;"
         "단일판매ㆍ공급계약체결;주요사항보고서;"
         "전환청구권;신주인수권;교환청구권;"
+        "전환가액;행사가액;교환가액;"
         "매출액또는손익구조;재무제표기준영업(잠정)실적;"
         "증권신고서;신규시설투자등;감사보고서"
     )
@@ -53,6 +54,27 @@ class Settings(BaseSettings):
     # OpenAI / LLM
     openai_api_key: str = ""
     openai_model: str = "gpt-4.1-mini"
+    gemini_api_key: str = ""
+    gemini_model: str = "gemini-2.0-flash"
+
+    @property
+    def llm_api_key(self) -> str:
+        """Active LLM API key (Gemini preferred over OpenAI)."""
+        return self.gemini_api_key or self.openai_api_key
+
+    @property
+    def llm_base_url(self) -> str:
+        """Base URL for LLM API (empty = OpenAI default)."""
+        if self.gemini_api_key:
+            return "https://generativelanguage.googleapis.com/v1beta/openai/"
+        return ""
+
+    @property
+    def llm_model(self) -> str:
+        """Default LLM model (auto-selects Gemini model when using Gemini API)."""
+        if self.gemini_api_key and self.openai_model == "gpt-4.1-mini":
+            return self.gemini_model
+        return self.openai_model
 
     # Paths
     stocks_json: str = "./stocks.json"

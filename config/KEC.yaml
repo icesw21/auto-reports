@@ -1,0 +1,14 @@
+company:
+  name: KEC
+  ticker: 092220
+  tags: []
+report:
+  output_dir: ''
+  years: 5
+  quarters: 8
+  statement_type: 연결
+disclosures:
+  exchange_disclosures_file: C:/OneDrive/stocks/KEC/KEC_exchange_disclosure.json
+analysis:
+  reports_dir: C:/OneDrive/stocks/KEC/reports
+  news_file: C:/OneDrive/stocks/KEC/KEC_news_20260305.json

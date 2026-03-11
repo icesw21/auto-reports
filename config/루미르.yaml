@@ -1,0 +1,14 @@
+company:
+  name: 루미르
+  ticker: '474170'
+  tags: []
+report:
+  output_dir: ''
+  years: 5
+  quarters: 8
+  statement_type: 연결
+disclosures:
+  exchange_disclosures_file: C:/OneDrive/stocks/루미르/루미르_exchange_disclosure.json
+analysis:
+  reports_dir: C:/OneDrive/stocks/루미르/reports
+  news_file: C:/OneDrive/stocks/루미르/루미르_news_20260303.json

@@ -1,0 +1,14 @@
+company:
+  name: 액트로
+  ticker: '290740'
+  tags: []
+report:
+  output_dir: ''
+  years: 5
+  quarters: 8
+  statement_type: 연결
+disclosures:
+  exchange_disclosures_file: C:/OneDrive/stocks/액트로/액트로_exchange_disclosure.json
+analysis:
+  reports_dir: C:/OneDrive/stocks/액트로/reports
+  news_file: C:/OneDrive/stocks/액트로/액트로_news_20260303.json

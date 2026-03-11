@@ -5,13 +5,11 @@ from __future__ import annotations
 import calendar
 import logging
 import re as _re_module
-import time
 from datetime import date, timedelta
 from typing import Any
 
 import OpenDartReader
-import requests
-
+from auto_reports.fetchers.rate_limiter import dart_call_with_retry, dart_get_with_retry
 from auto_reports.models.financial import BalanceSheet, IncomeStatementItem
 
 logger = logging.getLogger(__name__)
@@ -36,7 +34,9 @@ _BS_FIELD_NAMES: dict[str, list[str]] = {
     "short_term_investments": ["단기금융상품"],
     "total_liabilities": ["부채총계"],
     "short_term_borrowings": ["단기차입금"],
-    "current_long_term_debt": ["유동성장기부채"],
+    "current_long_term_debt": ["유동성장기부채", "유동성장기차입금"],
+    "current_bonds": ["유동성사채"],
+    "long_term_borrowings": ["장기차입금"],
     "bonds": ["사채"],
     "total_equity": ["자본총계"],
 }
@@ -146,6 +146,29 @@ def _is_valid_df(df: Any) -> bool:
         return False
 
 
+def _has_meaningful_amounts(df: Any) -> bool:
+    """Check if a DataFrame has at least one non-zero amount value.
+
+    Used after currency filtering to ensure KRW rows contain real data,
+    not just placeholder rows with zero amounts (e.g. 코오롱티슈진 older years).
+    """
+    found_col = False
+    for col in ("thstrm_amount", "당기금액", "amount", "thstrm_add_amount"):
+        if col not in df.columns:
+            continue
+        found_col = True
+        for val in df[col]:
+            parsed = _parse_amount(val)
+            if parsed is not None and parsed != 0:
+                return True
+    if not found_col:
+        logger.warning(
+            "_has_meaningful_amounts: no expected amount columns in df. "
+            "Columns: %s", list(df.columns),
+        )
+    return False
+
+
 class OpenDartFetcher:
     """Wrapper around the OpenDartReader library."""
 
@@ -179,33 +202,52 @@ class OpenDartFetcher:
         Returns (DataFrame_or_None, statement_type_label).
         """
         try:
-            df = self.dart.finstate_all(corp_code, year, reprt_code, self.preferred_fs_div)
+            df = dart_call_with_retry(self.dart.finstate_all, corp_code, year, reprt_code, self.preferred_fs_div)
         except Exception:
-            logger.exception(
-                "finstate_all failed: %s %d %s %s",
-                corp_code, year, reprt_code, self.preferred_fs_div,
-            )
+            logger.exception("finstate_all failed: %s %d %s %s", corp_code, year, reprt_code, self.preferred_fs_div)
             df = None
-        time.sleep(self.delay)
 
         stmt_label = "연결" if self.preferred_fs_div == "CFS" else "별도"
 
-        if _is_valid_df(df) and self.preferred_fs_div == "CFS":
-            self._cfs_succeeded = True
+        # Note: _cfs_succeeded is set AFTER the KRW filter below,
+        # not here — otherwise a CFS response with only USD rows
+        # would incorrectly mark CFS as successful.
 
         # Fallback: CFS → OFS when consolidated data is unavailable
         if not _is_valid_df(df) and self.preferred_fs_div == "CFS":
             logger.info("CFS data empty, falling back to OFS: %s %d", corp_code, year)
             try:
-                df = self.dart.finstate_all(corp_code, year, reprt_code, "OFS")
+                df = dart_call_with_retry(self.dart.finstate_all, corp_code, year, reprt_code, "OFS")
             except Exception:
                 logger.exception("OFS fallback also failed: %s %d", corp_code, year)
                 return None, ""
-            time.sleep(self.delay)
             stmt_label = "별도"
 
         if not _is_valid_df(df):
             return None, stmt_label
+
+        # Filter to KRW only — some companies (e.g. 코오롱티슈진) report
+        # in both USD and KRW; we want only KRW-denominated rows.
+        # If KRW rows don't exist or have all-zero amounts, return None
+        # so the caller can fall back to the HTML report fetcher which
+        # correctly identifies and selects KRW-denominated tables.
+        if "currency" in df.columns:
+            krw_df = df[df["currency"] == "KRW"]
+            if _is_valid_df(krw_df) and _has_meaningful_amounts(krw_df):
+                df = krw_df
+                if self.preferred_fs_div == "CFS":
+                    self._cfs_succeeded = True
+            else:
+                logger.warning(
+                    "No meaningful KRW amounts in API for %s %d; "
+                    "returning None to trigger HTML report fallback",
+                    corp_code, year,
+                )
+                return None, stmt_label
+        else:
+            # No currency column — standard KRW-only company
+            if self.preferred_fs_div == "CFS":
+                self._cfs_succeeded = True
 
         return df, stmt_label
 
@@ -450,10 +492,9 @@ class OpenDartFetcher:
 
         for keyword, category in self._OVERHANG_EVENT_KEYWORDS.items():
             try:
-                df = self.dart.event(corp_code, keyword, start=start_date)
-                time.sleep(self.delay)
+                df = dart_call_with_retry(self.dart.event, corp_code, keyword, start=start_date)
             except Exception:
-                logger.debug("Event fetch failed for %s/%s", keyword, corp_code)
+                logger.debug("Event fetch failed for %s/%s after retries", keyword, corp_code)
                 continue
 
             if not _is_valid_df(df):
@@ -607,17 +648,14 @@ class OpenDartFetcher:
                 "end_de": end_de,
             }
             try:
-                resp = requests.get(url, params=params, timeout=30)
+                resp = dart_get_with_retry(url, params=params, timeout=30)
                 resp.raise_for_status()
                 data = resp.json()
             except Exception:
                 logger.warning(
                     "Issuance API fetch failed: %s %s", category, corp_code,
                 )
-                time.sleep(self.delay)
                 continue
-
-            time.sleep(self.delay)
 
             status = data.get("status")
             if status != "000":
@@ -786,12 +824,22 @@ class OpenDartFetcher:
     # Overhang from financial statement notes (재무제표 주석)
     # ------------------------------------------------------------------
 
-    def get_overhang_from_notes(self, corp_code: str) -> tuple[list[dict], str]:
+    def get_overhang_from_notes(
+        self,
+        corp_code: str,
+        *,
+        api_key: str = "",
+        model: str = "",
+        base_url: str = "",
+    ) -> tuple[list[dict], str]:
         """Fetch overhang instruments from the latest periodic report's 재무제표 주석.
 
         Finds the most recent periodic report (분기/반기/사업보고서),
         navigates to the financial statement notes section, fetches the HTML,
         and extracts CB, BW, and convertible preferred stock data.
+
+        When *api_key* is provided, LLM-based extraction is attempted first,
+        falling back to regex-based parsing on failure.
 
         Returns (active_instruments, reference_date) where reference_date is
         the period end date in YYYYMMDD format (e.g. "20250930").
@@ -813,7 +861,7 @@ class OpenDartFetcher:
             logger.warning("No notes section HTML found in report %s", rcept_no)
             return [], ref_date
 
-        instruments = parse_notes_overhang(html)
+        instruments = parse_notes_overhang(html, api_key=api_key, model=model, base_url=base_url)
         active = [inst for inst in instruments if inst.get("active", False)]
         logger.info(
             "Overhang from notes: %d active / %d total instruments",
@@ -832,11 +880,10 @@ class OpenDartFetcher:
         end = today.strftime("%Y%m%d")
 
         try:
-            df = self.dart.list(corp_code, start=start, end=end, kind="A")
+            df = dart_call_with_retry(self.dart.list, corp_code, start=start, end=end, kind="A")
         except Exception:
             logger.exception("dart.list failed for %s", corp_code)
             return ("", "", "")
-        time.sleep(self.delay)
 
         if not _is_valid_df(df):
             return ("", "", "")
@@ -870,11 +917,10 @@ class OpenDartFetcher:
         import re as _re
 
         try:
-            docs = self.dart.sub_docs(rcept_no)
+            docs = dart_call_with_retry(self.dart.sub_docs, rcept_no)
         except Exception:
-            logger.exception("sub_docs failed for %s", rcept_no)
+            logger.exception("sub_docs failed for %s after retries", rcept_no)
             return ""
-        time.sleep(self.delay)
 
         if not _is_valid_df(docs):
             return ""
@@ -903,15 +949,13 @@ class OpenDartFetcher:
         # Try candidates in order; pick the one with substantial content
         for _, title, url in candidates:
             try:
-                resp = requests.get(url, timeout=30)
+                resp = dart_get_with_retry(url, timeout=30)
                 resp.raise_for_status()
                 resp.encoding = "utf-8"
                 html = resp.text
             except Exception:
                 logger.warning("Failed to fetch notes section: %s", title)
-                time.sleep(self.delay)
                 continue
-            time.sleep(self.delay)
 
             if len(html) > 1000:  # Skip placeholders (< 1KB)
                 logger.info("Fetched notes section: %s (%d bytes)", title, len(html))

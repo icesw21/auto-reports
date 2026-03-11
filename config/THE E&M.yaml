@@ -1,0 +1,13 @@
+company:
+  name: THE E&M
+  ticker: 089230
+  tags: []
+report:
+  output_dir: ''
+  years: 5
+  quarters: 8
+  statement_type: 연결
+disclosures:
+  exchange_disclosures_file: C:/OneDrive/stocks/THE E&M/THE E&M_exchange_disclosure.json
+analysis:
+  reports_dir: C:/OneDrive/stocks/THE E&M/reports

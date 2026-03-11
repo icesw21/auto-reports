@@ -1,0 +1,14 @@
+company:
+  name: 삼화페인트
+  ticker: 000390
+  tags: []
+report:
+  output_dir: ''
+  years: 5
+  quarters: 8
+  statement_type: 연결
+disclosures:
+  exchange_disclosures_file: C:/OneDrive/stocks/삼화페인트/삼화페인트_exchange_disclosure.json
+analysis:
+  reports_dir: C:/OneDrive/stocks/삼화페인트/reports
+  news_file: C:/OneDrive/stocks/삼화페인트/삼화페인트_news_20260307.json

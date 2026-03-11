@@ -1,0 +1,14 @@
+company:
+  name: 씨엠티엑스
+  ticker: '388210'
+  tags: []
+report:
+  output_dir: ''
+  years: 5
+  quarters: 8
+  statement_type: 연결
+disclosures:
+  exchange_disclosures_file: C:/OneDrive/stocks/씨엠티엑스/씨엠티엑스_exchange_disclosure.json
+analysis:
+  reports_dir: C:/OneDrive/stocks/씨엠티엑스/reports
+  news_file: C:/OneDrive/stocks/씨엠티엑스/씨엠티엑스_news_20260307.json

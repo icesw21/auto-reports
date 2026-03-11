@@ -10,7 +10,11 @@ from __future__ import annotations
 
 import logging
 
-from openai import OpenAI
+import time
+
+from openai import OpenAI, RateLimitError
+
+from auto_reports.fetchers.rate_limiter import get_llm_limiter
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +23,7 @@ def extract_shareholder_info(
     section_text: str,
     api_key: str,
     model: str = "",
+    base_url: str = "",
 ) -> str:
     """Extract largest shareholder info from 주주에 관한 사항 section text.
 
@@ -42,13 +47,14 @@ def extract_shareholder_info(
         "- 다른 텍스트 불필요"
     )
 
-    return _call_llm(api_key, model, prompt, max_tokens=100)
+    return _call_llm(api_key, model, prompt, max_tokens=100, base_url=base_url)
 
 
 def extract_dividend_info(
     section_text: str,
     api_key: str,
     model: str = "",
+    base_url: str = "",
 ) -> str:
     """Extract dividend info from 배당에 관한 사항 section text.
 
@@ -72,13 +78,14 @@ def extract_dividend_info(
         "- 다른 텍스트 불필요"
     )
 
-    return _call_llm(api_key, model, prompt, max_tokens=150)
+    return _call_llm(api_key, model, prompt, max_tokens=150, base_url=base_url)
 
 
 def extract_subsidiary_info(
     section_text: str,
     api_key: str,
     model: str = "",
+    base_url: str = "",
 ) -> str:
     """Extract subsidiary companies from 연결대상 종속회사 현황 section text.
 
@@ -99,7 +106,7 @@ def extract_subsidiary_info(
         "- 다른 텍스트 불필요"
     )
 
-    return _call_llm(api_key, model, prompt, max_tokens=300)
+    return _call_llm(api_key, model, prompt, max_tokens=300, base_url=base_url)
 
 
 def _call_llm(
@@ -107,10 +114,14 @@ def _call_llm(
     model: str,
     prompt: str,
     max_tokens: int = 200,
+    base_url: str = "",
 ) -> str:
-    """Make an OpenAI API call with error handling."""
-    client = OpenAI(api_key=api_key, max_retries=3)
-
+    """Make an OpenAI API call with rate limiting and RateLimitError retry."""
+    client = OpenAI(
+        api_key=api_key, max_retries=3,
+        **({"base_url": base_url} if base_url else {}),
+    )
+    get_llm_limiter().wait()
     try:
         response = client.chat.completions.create(
             model=model,
@@ -126,6 +137,30 @@ def _call_llm(
         if result in ("없음", "데이터 없음", "해당 없음", "해당없음"):
             return ""
         return result
+    except RateLimitError as e:
+        logger.warning("LLM rate limited (model=%s): %s — retrying", model, e)
+        for attempt in range(3):
+            time.sleep(2 ** (attempt + 1))
+            get_llm_limiter().wait()
+            try:
+                response = client.chat.completions.create(
+                    model=model,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.0,
+                    max_tokens=max_tokens,
+                )
+                result = (response.choices[0].message.content or "").strip()
+                if result.startswith('"') and result.endswith('"'):
+                    result = result[1:-1]
+                if result in ("없음", "데이터 없음", "해당 없음", "해당없음"):
+                    return ""
+                return result
+            except RateLimitError:
+                continue
+            except Exception:
+                break
+        logger.warning("LLM rate limit retries exhausted (model=%s)", model)
+        return ""
     except Exception as e:
         logger.warning("LLM extraction failed (model=%s): %s", model, e)
         return ""

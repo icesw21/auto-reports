@@ -15,7 +15,11 @@ import json
 import logging
 import re
 
-from openai import OpenAI
+import time
+
+from openai import OpenAI, RateLimitError
+
+from auto_reports.fetchers.rate_limiter import get_llm_limiter
 
 logger = logging.getLogger(__name__)
 
@@ -233,6 +237,7 @@ def extract_exchange_disclosure_unified(
     title: str,
     api_key: str,
     model: str = "",
+    base_url: str = "",
 ) -> tuple[str, dict] | None:
     """Classify and extract KRX exchange disclosure data in a single LLM call.
 
@@ -320,7 +325,7 @@ def extract_exchange_disclosure_unified(
         "모든 숫자는 쉼표 없이 정수로 표기하세요."
     )
 
-    raw = _call_llm(api_key, model, prompt, max_tokens=1200)
+    raw = _call_llm(api_key, model, prompt, max_tokens=1200, base_url=base_url)
     if not raw:
         return None
 
@@ -347,28 +352,41 @@ def _call_llm(
     model: str,
     prompt: str,
     max_tokens: int = 400,
+    base_url: str = "",
 ) -> str:
-    """Make an OpenAI API call with error handling.
-
-    Args:
-        api_key: OpenAI API key.
-        model: Model name to use.
-        prompt: User prompt text.
-        max_tokens: Maximum tokens in the response.
-
-    Returns:
-        Raw response text, or empty string on failure.
-    """
+    """Make an OpenAI API call with rate limiting and RateLimitError retry."""
+    client = OpenAI(
+        api_key=api_key, max_retries=3,
+        **({"base_url": base_url} if base_url else {}),
+    )
+    get_llm_limiter().wait()
     try:
-        client = OpenAI(api_key=api_key, max_retries=3)
         response = client.chat.completions.create(
             model=model,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.0,
             max_tokens=max_tokens,
         )
-        result = (response.choices[0].message.content or "").strip()
-        return result
+        return (response.choices[0].message.content or "").strip()
+    except RateLimitError as e:
+        logger.warning("LLM rate limited (model=%s): %s — retrying", model, e)
+        for attempt in range(3):
+            time.sleep(2 ** (attempt + 1))
+            get_llm_limiter().wait()
+            try:
+                response = client.chat.completions.create(
+                    model=model,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.0,
+                    max_tokens=max_tokens,
+                )
+                return (response.choices[0].message.content or "").strip()
+            except RateLimitError:
+                continue
+            except Exception:
+                break
+        logger.warning("LLM rate limit retries exhausted (model=%s)", model)
+        return ""
     except Exception as e:
         logger.warning("LLM extraction failed (model=%s): %s", model, e)
         return ""

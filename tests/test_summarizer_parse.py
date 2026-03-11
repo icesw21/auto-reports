@@ -1,8 +1,9 @@
-"""Tests for _parse_structured_response and generate_report_tags in openai_summarizer."""
+"""Tests for _parse_structured_response, _detect_revenue_unit, and generate_report_tags in openai_summarizer."""
 
 from unittest.mock import MagicMock, patch
 
 from auto_reports.summarizers.openai_summarizer import (
+    _detect_revenue_unit,
     _parse_structured_response,
     generate_report_tags,
 )
@@ -261,3 +262,54 @@ class TestGenerateReportTags:
         assert "AI반도체" in tags
         assert "2차전지" in tags
         assert len(tags) == 2
+
+
+# ── _detect_revenue_unit tests ──
+
+
+class TestDetectRevenueUnit:
+    """Tests for _detect_revenue_unit."""
+
+    def test_detect_cheonwon(self):
+        """Detects 천원 unit."""
+        text = "매출 현황\n(단위: 천원)\n전선퓨즈 1,192,400"
+        assert _detect_revenue_unit(text) == "천원"
+
+    def test_detect_baekmawon(self):
+        """Detects 백만원 unit."""
+        text = "매출 현황\n(단위: 백만원)\n전선퓨즈 1,192"
+        assert _detect_revenue_unit(text) == "백만원"
+
+    def test_detect_eokwon(self):
+        """Detects 억원 unit."""
+        text = "매출 현황\n(단위: 억원)\n전선퓨즈 12"
+        assert _detect_revenue_unit(text) == "억원"
+
+    def test_detect_with_spaces(self):
+        """Detects unit with extra spaces around colon."""
+        text = "매출 현황\n(단위 : 천원)\n데이터"
+        assert _detect_revenue_unit(text) == "천원"
+
+    def test_detect_fullwidth_colon(self):
+        """Detects unit with fullwidth colon."""
+        text = "매출 현황\n(단위：백만원)\n데이터"
+        assert _detect_revenue_unit(text) == "백만원"
+
+    def test_default_when_no_unit(self):
+        """Defaults to 백만원 when no unit found."""
+        text = "매출 현황\n전선퓨즈 1,192"
+        assert _detect_revenue_unit(text) == "백만원"
+
+    def test_default_on_empty(self):
+        """Defaults to 백만원 on empty string."""
+        assert _detect_revenue_unit("") == "백만원"
+
+    def test_first_match_wins(self):
+        """Takes first matching unit in text."""
+        text = "(단위: 천원)\n...\n참고: 단위 백만원 기준"
+        assert _detect_revenue_unit(text) == "천원"
+
+    def test_no_colon_returns_default(self):
+        """Bare space without colon should NOT match — returns default."""
+        text = "부문별 단위 천원 기준 합계"
+        assert _detect_revenue_unit(text) == "백만원"

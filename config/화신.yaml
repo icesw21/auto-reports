@@ -1,0 +1,14 @@
+company:
+  name: 화신
+  ticker: 010690
+  tags: []
+report:
+  output_dir: ''
+  years: 5
+  quarters: 8
+  statement_type: 연결
+disclosures:
+  exchange_disclosures_file: C:/OneDrive/stocks/화신/화신_exchange_disclosure.json
+analysis:
+  reports_dir: C:/OneDrive/stocks/화신/reports
+  news_file: C:/OneDrive/stocks/화신/화신_news_20260302.json

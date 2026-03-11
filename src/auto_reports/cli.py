@@ -364,6 +364,102 @@ def run(stocks_path: str | None, company: str | None, skip_fnguide: bool, skip_n
 
 
 # ---------------------------------------------------------------------------
+# screen (Minervini Trend Template screener)
+# ---------------------------------------------------------------------------
+
+@cli.command()
+@click.option("--market", default="ALL", type=click.Choice(["KOSPI", "KOSDAQ", "ALL"], case_sensitive=False), help="Market to screen (default: ALL).")
+@click.option("--min-rs", default=80, type=click.IntRange(min=1, max=99), help="Minimum RS Rating threshold (default: 80).")
+@click.option("--output", "-o", "output_path", default=None, help="Output path for stocks.json (default: from settings).")
+@click.option("--workers", "-w", default=4, type=click.IntRange(min=1), help="Parallel workers for price fetching (default: 4).")
+@click.option("--strict", is_flag=True, help="Strict mode (RS 90+, market cap 2000억+, VCP enabled).")
+@click.option("--verbose", "-v", is_flag=True, help="Enable verbose logging.")
+def screen(market: str, min_rs: int, output_path: str | None, workers: int, strict: bool, verbose: bool):
+    """Screen stocks using Mark Minervini's Trend Template.
+
+    Scans KOSPI/KOSDAQ universe and filters by 8 quantitative criteria
+    (moving averages, 52-week range, relative strength) plus domestic
+    market liquidity filters. Results are written to stocks.json.
+
+    \b
+    Examples:
+      auto-reports screen                        # Full KRX scan (RS >= 80)
+      auto-reports screen --market KOSDAQ         # KOSDAQ only
+      auto-reports screen --min-rs 90             # Higher RS threshold
+      auto-reports screen --strict                # Strict mode (RS 90+, VCP)
+      auto-reports screen -o filtered.json -w 8   # Custom output, 8 workers
+    """
+    from auto_reports.config import Settings
+    from auto_reports.utils.logging import setup_logging
+    from auto_reports.screeners.minervini import (
+        ScreenParams,
+        screen as run_screen,
+        write_stocks_json,
+    )
+
+    settings = Settings()
+    setup_logging(log_dir=settings.output_dir, log_level="DEBUG" if verbose else "INFO")
+
+    if not output_path:
+        output_path = settings.stocks_json
+
+    if strict:
+        params = ScreenParams.strict()
+        if min_rs != 80:
+            console.print("[yellow]--min-rs ignored when --strict is set (using RS >= 90)[/yellow]")
+    else:
+        params = ScreenParams(rs_min_percentile=min_rs)
+
+    def _progress(phase, done, total):
+        labels = {
+            "universe": "Loading universe",
+            "prices": "Fetching prices",
+            "rs_rating": "Computing RS ratings",
+            "screening": "Screening",
+        }
+        label = labels.get(phase, phase)
+        if total > 1:
+            console.print(f"  [dim]{label}... {done}/{total}[/dim]", end="\r")
+        else:
+            console.print(f"  [dim]{label}...[/dim]")
+
+    mode = "strict" if strict else "standard"
+    try:
+        console.print("\n[bold]Minervini Trend Template Screen[/bold]")
+        console.print(f"  Market: {market.upper()}, Min RS: {params.rs_min_percentile}, Mode: {mode}, Workers: {workers}\n")
+
+        results = run_screen(
+            market=market,
+            params=params,
+            max_workers=workers,
+            progress_callback=_progress,
+        )
+
+        if results:
+            path = write_stocks_json(results, output_path)
+            console.print(f"\n[bold green]{len(results)} stocks passed[/bold green]")
+            console.print()
+            # Print table header
+            console.print(f"  {'Ticker':<8} {'Name':<16} {'Close':>10} {'Score':>6} {'RS':>5}")
+            console.print(f"  {'─' * 8} {'─' * 16} {'─' * 10} {'─' * 6} {'─' * 5}")
+            for r in results[:30]:  # Show top 30
+                console.print(
+                    f"  {r['ticker']:<8} {r['name']:<16} {r['close']:>10,} {r['score']:>6.1f} {r['rs_rating']:>5.0f}"
+                )
+            if len(results) > 30:
+                console.print(f"  ... and {len(results) - 30} more")
+            console.print(f"\n  Written to: {path}")
+        else:
+            console.print("[yellow]No stocks passed the Minervini template.[/yellow]")
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+        if verbose:
+            import traceback
+            traceback.print_exc()
+        sys.exit(1)
+
+
+# ---------------------------------------------------------------------------
 # parse (debug, from finance-parser)
 # ---------------------------------------------------------------------------
 

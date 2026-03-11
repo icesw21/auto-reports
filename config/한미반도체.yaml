@@ -1,0 +1,14 @@
+company:
+  name: 한미반도체
+  ticker: '042700'
+  tags: []
+report:
+  output_dir: ''
+  years: 5
+  quarters: 8
+  statement_type: 연결
+disclosures:
+  exchange_disclosures_file: C:/OneDrive/stocks/한미반도체/한미반도체_exchange_disclosure.json
+analysis:
+  reports_dir: C:/OneDrive/stocks/한미반도체/reports
+  news_file: C:/OneDrive/stocks/한미반도체/한미반도체_news_20260306.json

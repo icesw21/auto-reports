@@ -1,0 +1,14 @@
+company:
+  name: 대주전자재료
+  ticker: 078600
+  tags: []
+report:
+  output_dir: ''
+  years: 5
+  quarters: 8
+  statement_type: 연결
+disclosures:
+  exchange_disclosures_file: C:/OneDrive/stocks/대주전자재료/대주전자재료_exchange_disclosure.json
+analysis:
+  reports_dir: C:/OneDrive/stocks/대주전자재료/reports
+  news_file: C:/OneDrive/stocks/대주전자재료/대주전자재료_news_20260306.json

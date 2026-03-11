@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import logging
 import re
-import time
 from urllib.parse import urljoin, urlparse, parse_qs
 
 import requests
 from bs4 import BeautifulSoup
+
+from auto_reports.fetchers.rate_limiter import get_dart_limiter
+
+_MAX_RETRIES = 3
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +57,6 @@ class DartHtmlFetcher:
         doc_url = self._extract_document_url(main_soup, url, raw_html=raw_html)
         if doc_url and doc_url != url:
             logger.info("Fetching document content from: %s", doc_url)
-            time.sleep(self.delay)
             doc_soup = self._get_page(doc_url)
             # Prefer title from document page if available
             doc_title = self._extract_title(doc_soup)
@@ -74,8 +76,6 @@ class DartHtmlFetcher:
         """
         results: list[tuple[str, str, BeautifulSoup]] = []
         for i, url in enumerate(urls):
-            if i > 0:
-                time.sleep(self.delay)
             try:
                 title, soup = self.fetch_disclosure(url)
                 results.append((url, title, soup))
@@ -176,12 +176,29 @@ class DartHtmlFetcher:
         Returns (raw_html, soup).  The raw text is needed for regex-based
         frame detection when the HTML parser misses <frame> tags.
         """
-        try:
-            response = self._session.get(url, timeout=self.timeout)
-            response.raise_for_status()
-        except requests.RequestException:
-            logger.exception("HTTP request failed for URL: %s", url)
-            raise
+        import time
+
+        limiter = get_dart_limiter()
+        for attempt in range(_MAX_RETRIES + 1):
+            limiter.wait()
+            limiter.semaphore.acquire()
+            try:
+                response = self._session.get(url, timeout=self.timeout)
+                response.raise_for_status()
+                break
+            except requests.RequestException:
+                if attempt < _MAX_RETRIES:
+                    wait_time = min(3 * (2 ** attempt), 60)
+                    logger.warning(
+                        "HTTP request failed for %s, retrying in %ds (attempt %d/%d)",
+                        url, wait_time, attempt + 1, _MAX_RETRIES,
+                    )
+                    time.sleep(wait_time)
+                else:
+                    logger.exception("HTTP request failed for URL: %s", url)
+                    raise
+            finally:
+                limiter.semaphore.release()
 
         # DART pages are sometimes served as EUC-KR but declared incorrectly.
         content_type = response.headers.get("Content-Type", "")

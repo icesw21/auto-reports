@@ -8,9 +8,41 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from openai import OpenAI
+from openai import OpenAI, RateLimitError
+
+from auto_reports.fetchers.rate_limiter import get_llm_limiter
 
 logger = logging.getLogger(__name__)
+
+
+def _llm_call_with_retry(client: OpenAI, model: str, messages: list, **kwargs) -> str:
+    """Make an LLM call with rate limiting and RateLimitError retry."""
+    get_llm_limiter().wait()
+    try:
+        response = client.chat.completions.create(
+            model=model, messages=messages, **kwargs,
+        )
+        return (response.choices[0].message.content or "").strip()
+    except RateLimitError as e:
+        logger.warning("LLM rate limited (model=%s): %s — retrying", model, e)
+        for attempt in range(3):
+            import time
+            time.sleep(2 ** (attempt + 1))
+            get_llm_limiter().wait()
+            try:
+                response = client.chat.completions.create(
+                    model=model, messages=messages, **kwargs,
+                )
+                return (response.choices[0].message.content or "").strip()
+            except RateLimitError:
+                continue
+            except Exception:
+                break
+        logger.warning("LLM rate limit retries exhausted (model=%s)", model)
+        return ""
+    except Exception as e:
+        logger.warning("LLM call failed (model=%s): %s", model, type(e).__name__)
+        return ""
 
 
 @dataclass
@@ -31,6 +63,7 @@ def extract_estimated_earnings(
     target_year: int,
     api_key: str,
     model: str = "",
+    base_url: str = "",
 ) -> int | None:
     """Extract estimated net income for target_year from research report PDFs.
 
@@ -57,7 +90,10 @@ def extract_estimated_earnings(
     if not pdfs:
         return None
 
-    client = OpenAI(api_key=api_key, max_retries=3)
+    client = OpenAI(
+        api_key=api_key, max_retries=3,
+        **({"base_url": base_url} if base_url else {}),
+    )
     estimates: list[int] = []
 
     for pdf_path in pdfs:
@@ -79,13 +115,11 @@ def extract_estimated_earnings(
         )
 
         try:
-            response = client.chat.completions.create(
-                model=model,
+            answer = _llm_call_with_retry(
+                client, model,
                 messages=[{"role": "user", "content": prompt}],
-                temperature=0.0,
-                max_tokens=50,
+                temperature=0.0, max_tokens=50,
             )
-            answer = (response.choices[0].message.content or "").strip()
 
             if "없음" in answer or not answer:
                 logger.info("No %d estimate in %s", target_year, pdf_path.name)
@@ -263,6 +297,7 @@ def generate_analysis(
     model: str = "",
     reports_dir: Path | None = None,
     news_file: Path | None = None,
+    base_url: str = "",
 ) -> AnalysisResult:
     """Generate investment analysis sections 5-7 using LLM.
 
@@ -291,24 +326,21 @@ def generate_analysis(
     prompt = prompt.replace("{company_name}", company_name)
 
     # 5. Call LLM
-    client = OpenAI(api_key=api_key, max_retries=5)
+    client = OpenAI(
+        api_key=api_key, max_retries=5,
+        **({"base_url": base_url} if base_url else {}),
+    )
 
-    try:
-        logger.info("Calling LLM for analysis (model=%s, prompt=%d chars)", model, len(prompt))
-        response = client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "user", "content": prompt},
-            ],
-            temperature=0.4,
-            max_tokens=6000,
-        )
-        content = response.choices[0].message.content
-        raw_output = (content or "").strip()
-        logger.info("LLM analysis response: %d chars", len(raw_output))
-    except Exception as e:
-        logger.warning("LLM analysis failed (model=%s): %s", model, type(e).__name__)
+    logger.info("Calling LLM for analysis (model=%s, prompt=%d chars)", model, len(prompt))
+    raw_output = _llm_call_with_retry(
+        client, model,
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.4, max_tokens=6000,
+    )
+    if not raw_output:
+        logger.warning("LLM analysis returned empty response (model=%s)", model)
         return result
+    logger.info("LLM analysis response: %d chars", len(raw_output))
 
     # 6. Parse the response - extract sections 4 additions + 5-7
     result = _parse_analysis_response(raw_output)
@@ -327,6 +359,7 @@ def supplement_value_driver_and_competitors(
     model: str = "",
     reports_dir: Path | None = None,
     news_file: Path | None = None,
+    base_url: str = "",
 ) -> tuple[str, str]:
     """Generate Value Driver and 경쟁사 비교 as a feedback-loop supplement.
 
@@ -358,19 +391,18 @@ def supplement_value_driver_and_competitors(
         f"소스에 근거한 내용만 포함, 없으면 '- 데이터 부족으로 비교 불가'라고 명시.\n"
     )
 
-    client = OpenAI(api_key=api_key, max_retries=3)
+    client = OpenAI(
+        api_key=api_key, max_retries=3,
+        **({"base_url": base_url} if base_url else {}),
+    )
 
-    try:
-        logger.info("Supplementing Value Driver & 경쟁사 비교 (model=%s)", model)
-        response = client.chat.completions.create(
-            model=model,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.4,
-            max_tokens=2000,
-        )
-        raw = (response.choices[0].message.content or "").strip()
-    except Exception as e:
-        logger.warning("Value Driver supplement failed: %s", e)
+    logger.info("Supplementing Value Driver & 경쟁사 비교 (model=%s)", model)
+    raw = _llm_call_with_retry(
+        client, model,
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.4, max_tokens=2000,
+    )
+    if not raw:
         return ("", "")
 
     # Parse [Value Driver] and [경쟁사 비교] sections
@@ -395,6 +427,7 @@ def generate_momentum_text(
     model: str = "",
     reports_dir: Path | None = None,
     news_file: Path | None = None,
+    base_url: str = "",
 ) -> str:
     """Generate 주요 모멘텀 text as a feedback-loop supplement.
 
@@ -413,30 +446,46 @@ def generate_momentum_text(
         f"당신은 전문 금융 분석가입니다. 다음은 {company_name}에 대한 소스 문서입니다.\n\n"
         f"{sources_content}\n\n"
         f"위 소스를 바탕으로 이 종목의 최근 1년간 주요 모멘텀(주가 상승/하락 촉매)을 "
-        f"1~2문장으로 간결하게 요약해주세요.\n"
+        f"4~8개 항목으로 요약해주세요.\n"
         f"- 핵심 이벤트, 수주/계약, 실적 변화, 산업 트렌드 등을 포함\n"
-        f"- 모든 문장은 명사형 어미로 종결\n"
+        f"- 각 항목은 반드시 온점(.)으로 종결할 것\n"
+        f"- 각 항목은 반드시 줄바꿈(\\n)으로 구분할 것 (한 줄에 한 항목만)\n"
         f"- 소스에 근거한 내용만 포함\n"
-        f"- 문장만 응답 (머리말/꼬리말 불필요)"
+        f"- 항목만 응답 (머리말/꼬리말/번호/불릿 불필요)"
     )
 
-    client = OpenAI(api_key=api_key, max_retries=3)
+    client = OpenAI(
+        api_key=api_key, max_retries=3,
+        **({"base_url": base_url} if base_url else {}),
+    )
 
-    try:
-        logger.info("Generating momentum text for %s (model=%s)", company_name, model)
-        response = client.chat.completions.create(
-            model=model,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.3,
-            max_tokens=500,
-        )
-        result = (response.choices[0].message.content or "").strip()
+    logger.info("Generating momentum text for %s (model=%s)", company_name, model)
+    result = _llm_call_with_retry(
+        client, model,
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.3, max_tokens=500,
+    )
+    if result:
         # Remove any leading "주요 모멘텀:" prefix if LLM included it
         result = re.sub(r'^주요\s*모멘텀\s*[:：]\s*', '', result).strip()
-        return result
-    except Exception as e:
-        logger.warning("Momentum text generation failed: %s", e)
-        return ""
+        # Clean up each line: strip bullet/number prefixes, ensure period ending
+        lines = []
+        for line in result.split('\n'):
+            line = line.strip()
+            if not line:
+                continue
+            # Strip leading bullets/numbers: "- ", "1. ", "• ", "1) " etc.
+            line = re.sub(r'^[-•·]\s+', '', line)
+            line = re.sub(r'^\d+[.)]\s*', '', line)
+            line = line.strip()
+            if not line:
+                continue
+            # Ensure line ends with a period
+            if not line.endswith('.'):
+                line += '.'
+            lines.append(line)
+        result = '\n'.join(lines)
+    return result
 
 
 def _clean_risk_item(s: str) -> str:

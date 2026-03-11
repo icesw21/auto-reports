@@ -1,0 +1,14 @@
+company:
+  name: 헥토이노베이션
+  ticker: '214180'
+  tags: []
+report:
+  output_dir: ''
+  years: 5
+  quarters: 8
+  statement_type: 연결
+disclosures:
+  exchange_disclosures_file: C:/OneDrive/stocks/헥토이노베이션/헥토이노베이션_exchange_disclosure.json
+analysis:
+  reports_dir: C:/OneDrive/stocks/헥토이노베이션/reports
+  news_file: C:/OneDrive/stocks/헥토이노베이션/헥토이노베이션_news_20260303.json

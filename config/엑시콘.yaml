@@ -1,0 +1,14 @@
+company:
+  name: 엑시콘
+  ticker: 092870
+  tags: []
+report:
+  output_dir: ''
+  years: 5
+  quarters: 8
+  statement_type: 연결
+disclosures:
+  exchange_disclosures_file: C:/OneDrive/stocks/엑시콘/엑시콘_exchange_disclosure.json
+analysis:
+  reports_dir: C:/OneDrive/stocks/엑시콘/reports
+  news_file: C:/OneDrive/stocks/엑시콘/엑시콘_news_20260303.json

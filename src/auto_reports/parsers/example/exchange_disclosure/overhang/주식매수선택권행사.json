@@ -1,0 +1,83 @@
+{
+  "type": "주식매수선택권행사",
+  "exercise_shares": 125360,
+  "total_shares": 11901931,
+  "ratio_pct": 1.1,
+  "listing_date": "2026-03-23",
+  "daily_exercises": [
+    {
+      "date": "2026-02-27",
+      "relation": "등기임원",
+      "name": "김병환",
+      "exercise_price": 12800,
+      "par_value": 500,
+      "shares_new": 25000,
+      "shares_treasury": 0,
+      "shares_cash": 0,
+      "shares_total": 25000
+    },
+    {
+      "date": "2026-02-27",
+      "relation": "미등기임원",
+      "name": "나혜성",
+      "exercise_price": 12800,
+      "par_value": 500,
+      "shares_new": 3060,
+      "shares_treasury": 0,
+      "shares_cash": 0,
+      "shares_total": 3060
+    },
+    {
+      "date": "2026-02-27",
+      "relation": "미등기임원",
+      "name": "김진국",
+      "exercise_price": 12800,
+      "par_value": 500,
+      "shares_new": 10000,
+      "shares_treasury": 0,
+      "shares_cash": 0,
+      "shares_total": 10000
+    },
+    {
+      "date": "2026-02-27",
+      "relation": "미등기임원",
+      "name": "정용환",
+      "exercise_price": 12800,
+      "par_value": 500,
+      "shares_new": 3000,
+      "shares_treasury": 0,
+      "shares_cash": 0,
+      "shares_total": 3000
+    },
+    {
+      "date": "2026-02-27",
+      "relation": "직원",
+      "name": "26명",
+      "exercise_price": 12800,
+      "par_value": 500,
+      "shares_new": 78800,
+      "shares_treasury": 0,
+      "shares_cash": 0,
+      "shares_total": 78800
+    },
+    {
+      "date": "2026-02-27",
+      "relation": "기타",
+      "name": "1명(퇴사자)",
+      "exercise_price": 12800,
+      "par_value": 500,
+      "shares_new": 5500,
+      "shares_treasury": 0,
+      "shares_cash": 0,
+      "shares_total": 5500
+    }
+  ],
+  "so_remaining": {
+    "total": 201640,
+    "new_shares": 201640,
+    "treasury_shares": 0,
+    "cash_settlement": 0,
+    "other": 0
+  },
+  "notes": "1. 본 공시는 당사가 부여한 주식매수선택권 행사주식수의 누계가 발행주식총수의 100분의 1이상의 수에 해당함에 따라 신고하는 사항입니다.  2. 상기 '총발행주식수(주)'는 공시 제출일 현재의 총 발행주식수로 금번 주식매수선택권 행사 주식수는 반영되지 않았습니다.  3. 금번 행사와 관련된 주식매수선택권에 대한 사항은 아래와 같습니다.  \n \r\n           - 부여일: 2024년 02월 21일 \n \r\n           - 총 부여 주식수: 193,500주 \n \r\n           - 취소 주식수: 18,000주 \n \r\n           - 기 행사 주식수:  - \n \r\n           - 금번 행사 주식수: 125,360주 \n \r\n           - 행사 후 잔여 주식수: 50,140주 \n \r\n           - 행사가격: 12,800원 \n \r\n           - 행사기간: 2026년 02월 21일 ~ 2031년 02월 20일 \n \r\n           - 주식교부방법: 신주발행  4. 당사는 2024년 6월 28일 코스닥시장에 상장하였으며, 금번 행사된 주식매수선택권은 상장일 이전에 부여된 건으로, 이에 따른 별도의 관련공시는 없습니다.  5. 상기 '신주상장예정일'은 관계기관 승인 및 협의과정에서 변경될 수 있습니다."
+}

@@ -8,11 +8,10 @@ from __future__ import annotations
 
 import logging
 import re
-import time
-
 import OpenDartReader
-import requests
 from bs4 import BeautifulSoup
+
+from auto_reports.fetchers.rate_limiter import dart_call_with_retry, dart_get_with_retry
 
 logger = logging.getLogger(__name__)
 
@@ -63,11 +62,10 @@ class DartBusinessFetcher:
         end = today.strftime("%Y%m%d")
 
         try:
-            df = self.dart.list(corp, start=start, end=end, kind="A")
+            df = dart_call_with_retry(self.dart.list, corp, start=start, end=end, kind="A")
         except Exception:
             logger.exception("dart.list failed for %s", corp)
             return None
-        time.sleep(self.delay)
 
         if df is None or df.empty:
             return None
@@ -91,7 +89,7 @@ class DartBusinessFetcher:
     def _fetch_section_text(self, url: str) -> str:
         """Fetch a section URL and return clean text content."""
         try:
-            r = requests.get(url, timeout=15)
+            r = dart_get_with_retry(url, timeout=15)
             r.raise_for_status()
             r.encoding = "utf-8"
             soup = BeautifulSoup(r.text, "html.parser")
@@ -118,11 +116,10 @@ class DartBusinessFetcher:
         logger.info("Fetching business sections from: %s (%s)", report_name, rcept_no)
 
         try:
-            docs = self.dart.sub_docs(rcept_no)
+            docs = dart_call_with_retry(self.dart.sub_docs, rcept_no)
         except Exception:
             logger.exception("sub_docs failed for %s", rcept_no)
             return None
-        time.sleep(self.delay)
 
         if docs is None or docs.empty:
             return None
@@ -155,7 +152,6 @@ class DartBusinessFetcher:
                 logger.info(
                     "Fetched %s: %d chars", section_title, len(text),
                 )
-                time.sleep(self.delay)
             else:
                 logger.warning("Section not found: %s", section_title)
 

@@ -15,7 +15,7 @@ links:
 - **시가총액**: {{ data.market_cap_str }}
 - **최근 분기 PBR**: {{ data.latest_pbr_str }}
 - **지난 사업연도 PER**: {{ data.trailing_per_str }}
-- **올해 예상 PER**: {{ data.estimated_per_str }}
+- **올해 예상 PER**: {{ data.consensus_per_str or data.estimated_per_str }}
 {%- if data.price_period %}
 - **주가 추이**:
 {%- if data.chart_image %}
@@ -32,7 +32,10 @@ links:
 | 고점 | {{ data.price_high }} |
 | {{ data.price_return_label }} | {{ data.price_return_1y }} |
 {%- if data.momentum_text %}
-> 주요 모멘텀: {{ data.momentum_text }}
+> **주요 모멘텀**
+{% for line in data.momentum_text.split('\n') if line.strip() %}
+> - {{ line.strip() }}
+{% endfor %}
 {%- endif %}
 {%- endif %}
 
@@ -80,6 +83,9 @@ _주: {{ data.balance_sheet_note }}_
 ### 연도별 실적 추이
 | 연도       | 매출액(증감률)          | 영업이익(증감률)         | 당기순이익(증감률)     |
 | -------- | ----------------- | ----------------- | -------------- |
+{%- for row in data.consensus_rows %}
+| {{ row.year }} | {{ row.revenue }} | {{ row.operating_income }} | {{ row.net_income }} |
+{%- endfor %}
 {%- for row in data.annual_rows %}
 | {{ row.year }} | {{ row.revenue }} | {{ row.operating_income }} | {{ row.net_income }} |
 {%- endfor %}
@@ -91,6 +97,42 @@ _주: {{ data.balance_sheet_note }}_
 {%- endfor %}
 {%- if data.quarterly_note %}
 _주: {{ data.quarterly_note }}_
+{%- endif %}
+{%- if data.exchange_forecasts %}
+### 실적 전망 (공정공시)
+{%- for fc in data.exchange_forecasts %}
+{%- set unit = fc.unit | default('억원') %}
+{%- if fc.forecasts %}
+| 구분({{ unit }}) | {% for f in fc.forecasts %}{{ f.year }}E | {% endfor %}
+
+|---|{% for f in fc.forecasts %}---|{% endfor %}
+
+{%- for item_name in ['매출액', '영업이익', '법인세비용차감전계속사업이익', '당기순이익'] %}
+{%- set has_any = [] %}
+{%- for f in fc.forecasts %}{% if f[item_name] is not none %}{% if has_any.append(1) %}{% endif %}{% endif %}{% endfor %}
+{%- if has_any %}
+| {{ item_name }} | {% for f in fc.forecasts %}{{ '{:,}'.format(f[item_name]) if f[item_name] is not none else '-' }} | {% endfor %}
+
+{%- endif %}
+{%- endfor %}
+{%- endif %}
+{%- if fc.assumptions %}
+_전제: {{ fc.assumptions }}_
+{%- endif %}
+{%- if fc.prior_forecast_comparison %}
+{%- set comp = fc.prior_forecast_comparison %}
+
+> [!info] 직전 전망 대비 실적 괴리 ({{ comp.period.start[:4] if comp.period else '' }})
+
+| 항목({{ unit }}) | 전망 | 실적 | 괴리율(%) |
+|---|---|---|---|
+{%- for item_name, item_data in comp['items'].items() %}
+{%- if item_data.get('전망') is not none or item_data.get('실적') is not none %}
+| {{ item_name }} | {{ '{:,}'.format(item_data['전망']) if item_data.get('전망') is not none else '-' }} | {{ '{:,}'.format(item_data['실적']) if item_data.get('실적') is not none else '-' }} | {{ item_data.get('괴리율', '-') }} |
+{%- endif %}
+{%- endfor %}
+{%- endif %}
+{%- endfor %}
 {%- endif %}
 ## 4. 사업 모델
 {%- if data.business_model %}

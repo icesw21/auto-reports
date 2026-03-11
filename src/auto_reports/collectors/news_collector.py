@@ -9,11 +9,16 @@ import os
 import json
 import re
 import time
-import requests
+import warnings
 from datetime import datetime, timedelta
 from typing import List, Dict
 from urllib.parse import quote
+
+import requests
+import urllib3
 from bs4 import BeautifulSoup
+from requests.adapters import HTTPAdapter
+from urllib3.util.ssl_ import create_urllib3_context
 
 try:
     import feedparser
@@ -27,6 +32,19 @@ except ImportError:
 
 from auto_reports.collectors.base import BaseCollector
 from auto_reports.utils.retry import retry_request
+
+# Suppress InsecureRequestWarning for news sites with expired SSL certs
+warnings.filterwarnings("ignore", category=urllib3.exceptions.InsecureRequestWarning)
+
+
+class _WeakDHAdapter(HTTPAdapter):
+    """HTTPAdapter that tolerates servers with weak Diffie-Hellman keys."""
+
+    def init_poolmanager(self, *args, **kwargs):
+        ctx = create_urllib3_context()
+        ctx.set_ciphers("DEFAULT:@SECLEVEL=1")
+        kwargs["ssl_context"] = ctx
+        return super().init_poolmanager(*args, **kwargs)
 
 
 class NewsCollector(BaseCollector):
@@ -112,6 +130,14 @@ class NewsCollector(BaseCollector):
         except Exception as e:
             self.logger.warning(f"Hankyung consensus collection failed: {e}")
 
+        # Collect from TheBell
+        try:
+            thebell_news = self._collect_thebell_news(company_name)
+            all_news.extend(thebell_news)
+            self.logger.info(f"TheBell news collected: {len(thebell_news)} articles")
+        except Exception as e:
+            self.logger.warning(f"TheBell news collection failed: {e}")
+
         # Collect from Yonhap Infomax
         try:
             einfomax_news = self._collect_einfomax_news(company_name)
@@ -192,7 +218,7 @@ class NewsCollector(BaseCollector):
         Returns:
             Extracted article text, or empty string on failure.
         """
-        if source == 'hankyung_consensus':
+        if source in ('hankyung_consensus', 'thebell'):
             return ""
 
         try:
@@ -216,6 +242,7 @@ class NewsCollector(BaseCollector):
                 url=actual_url,
                 headers=self.headers,
                 timeout=10,
+                verify=False,
             )
 
             # Handle encoding
@@ -425,10 +452,12 @@ class NewsCollector(BaseCollector):
         url = f"https://markets.hankyung.com/stock/{stock_code}/consensus"
 
         try:
-            res = retry_request(
-                requests.get, max_retries=3, base_delay=1, logger=self.logger,
-                url=url, headers=self.headers, timeout=10
-            )
+            with requests.Session() as session:
+                session.mount("https://markets.hankyung.com", _WeakDHAdapter())
+                res = retry_request(
+                    session.get, max_retries=3, base_delay=1, logger=self.logger,
+                    url=url, headers=self.headers, timeout=10
+                )
             res.encoding = 'utf-8'
             text = res.text
 
@@ -600,5 +629,80 @@ class NewsCollector(BaseCollector):
 
         except Exception as e:
             self.logger.error(f"Error collecting MK news: {e}")
+
+        return news_list
+
+    def _collect_thebell_news(self, company_name: str) -> List[Dict]:
+        """
+        Collect financial news from TheBell (더벨).
+
+        Scrapes search results from thebell.co.kr for company-specific
+        capital markets and finance news.
+
+        Args:
+            company_name: Company name (Korean)
+
+        Returns:
+            List of news dictionaries with date, title, url, source
+        """
+        news_list = []
+        url = (
+            f"https://www.thebell.co.kr/search/search.asp"
+            f"?keyword={quote(company_name)}&period=6MON&ord=NEWSDATE"
+        )
+
+        try:
+            res = retry_request(
+                requests.get, max_retries=3, base_delay=1, logger=self.logger,
+                url=url, headers=self.headers, timeout=10
+            )
+            res.encoding = 'utf-8'
+            soup = BeautifulSoup(res.text, 'html.parser')
+
+            # Articles are in div.newsList.tp1 > ul > li
+            articles = soup.select('div.newsList.tp1 ul li')
+
+            for article in articles[:30]:
+                try:
+                    # Title and URL from dl > dt > a.txtE
+                    title_elem = article.select_one('dl dt a.txtE')
+                    if not title_elem:
+                        continue
+
+                    title = title_elem.get_text(strip=True)
+                    link = title_elem.get('href', '')
+                    if link and not link.startswith('http'):
+                        link = f"https://www.thebell.co.kr{link}"
+
+                    if not title or not link:
+                        continue
+
+                    # Date from dd.userBox > span.date (format: YYYY-MM-DD HH:MM:SS)
+                    date_elem = article.select_one('dd.userBox span.date')
+                    if not date_elem:
+                        continue
+
+                    date_text = date_elem.get_text(strip=True)
+                    match = re.match(r'(\d{4}-\d{2}-\d{2})', date_text)
+                    if not match:
+                        continue
+                    news_date = datetime.strptime(match.group(1), '%Y-%m-%d').date()
+
+                    if news_date < self.cutoff_date.date():
+                        continue
+
+                    news_list.append({
+                        'date': str(news_date),
+                        'title': title,
+                        'url': link,
+                        'source': 'thebell'
+                    })
+
+                except Exception as e:
+                    self.logger.debug(f"Error parsing TheBell article: {e}")
+                    continue
+
+        except Exception as e:
+            self.logger.error(f"Error collecting TheBell news: {e}")
 
         return news_list

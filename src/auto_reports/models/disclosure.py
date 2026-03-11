@@ -292,6 +292,7 @@ class Performance(BaseModel):
     income_changes: Optional[dict] = Field(None, alias="3. 매출액 또는 손익구조변동내용(단위: 원)")
     financial_status: Optional[dict] = Field(None, alias="4. 재무현황(단위 : 원)")
     change_reason: Optional[str] = Field(None, alias="5. 매출액 또는 손익구조 변동 주요원인")
+    unit: str = "원"  # Detected unit: 원, 천원, 백만원, 억원
 
     model_config = {"populate_by_name": True}
 

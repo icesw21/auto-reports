@@ -2,28 +2,17 @@
 
 from __future__ import annotations
 
-import logging
 from typing import Optional
 
-from auto_reports.models.financial import BalanceSheet, IncomeStatementItem
+from auto_reports.models.financial import BalanceSheet, ConsensusItem, IncomeStatementItem
 from auto_reports.models.report import AnnualRow, BalanceSheetRow, QuarterlyRow
 
-logger = logging.getLogger(__name__)
 
-
-def to_eok(won: Optional[int]) -> Optional[int]:
-    """Convert won to 억원 (100 million KRW), rounded.
-
-    Returns None for values exceeding ±10,000,000 억원 (1,000조원),
-    which indicates a data error from the DART API.
-    """
+def to_eok(won: int | None) -> int | None:
+    """Convert won to 억원 (100 million KRW), rounded."""
     if won is None:
         return None
-    eok = round(won / 1_0000_0000)
-    if abs(eok) > 10_000_000:
-        logger.warning("Unreasonable won value %d (= %d 억원), treating as unavailable", won, eok)
-        return None
-    return eok
+    return round(won / 1_0000_0000)
 
 
 def format_eok(won: Optional[int]) -> str:
@@ -116,9 +105,15 @@ def build_balance_sheet_rows(
     cash_total = _sum_optional(bs.cash_and_equivalents, bs.short_term_investments)
     prev_cash_total = _sum_optional(prev.cash_and_equivalents, prev.short_term_investments) if prev else None
 
-    # 이자부부채 = 단기차입금 + 유동성장기부채 + 사채
-    debt_total = _sum_optional(bs.short_term_borrowings, bs.current_long_term_debt, bs.bonds)
-    prev_debt_total = _sum_optional(prev.short_term_borrowings, prev.current_long_term_debt, prev.bonds) if prev else None
+    # 이자부부채 = 단기차입금 + 유동성장기부채 + 유동성사채 + 장기차입금 + 사채
+    debt_total = _sum_optional(
+        bs.short_term_borrowings, bs.current_long_term_debt,
+        bs.current_bonds, bs.long_term_borrowings, bs.bonds,
+    )
+    prev_debt_total = _sum_optional(
+        prev.short_term_borrowings, prev.current_long_term_debt,
+        prev.current_bonds, prev.long_term_borrowings, prev.bonds,
+    ) if prev else None
 
     rows.append(_row("자산총계", bs.total_assets, prev.total_assets if prev else None, "bold"))
     rows.append(_row("현금성자산", cash_total, prev_cash_total, "sub"))
@@ -225,6 +220,50 @@ def build_cumulative_annual_row(
         operating_income=_bold_wrap(format_income_cell(curr_op, op_yoy), True),
         net_income=_bold_wrap(format_income_cell(curr_ni, ni_yoy), True),
     )
+
+
+def build_consensus_rows(
+    consensus_items: list[ConsensusItem],
+    annual_statements: list[IncomeStatementItem],
+) -> list[AnnualRow]:
+    """Build consensus estimate rows with YoY vs previous year.
+
+    Expects consensus_items sorted oldest-first (e.g. 2025E, 2026E, 2027E).
+    Uses the most recent actual year as the initial comparison base, then
+    chains year-over-year through successive consensus years.
+
+    Returns rows sorted newest-first (e.g. 2027E, 2026E, 2025E) for display.
+    """
+    if not consensus_items:
+        return []
+
+    # Most recent actual year (annual_statements sorted newest-first)
+    prev_stmt = annual_statements[0] if annual_statements else None
+
+    rows = []
+    for item in consensus_items:
+        rev_yoy = calc_yoy_change(item.revenue, prev_stmt.revenue if prev_stmt else None)
+        op_yoy = calc_yoy_change(item.operating_income, prev_stmt.operating_income if prev_stmt else None)
+        ni_yoy = calc_yoy_change(item.net_income, prev_stmt.net_income if prev_stmt else None)
+
+        rows.append(AnnualRow(
+            year=item.period,
+            revenue=format_income_cell(item.revenue, rev_yoy),
+            operating_income=format_income_cell(item.operating_income, op_yoy),
+            net_income=format_income_cell(item.net_income, ni_yoy),
+        ))
+
+        # Chain: advance base only for non-None fields
+        prev_stmt = IncomeStatementItem(
+            period=item.period,
+            revenue=item.revenue if item.revenue is not None else (prev_stmt.revenue if prev_stmt else None),
+            operating_income=item.operating_income if item.operating_income is not None else (prev_stmt.operating_income if prev_stmt else None),
+            net_income=item.net_income if item.net_income is not None else (prev_stmt.net_income if prev_stmt else None),
+        )
+
+    # Reverse to newest-first for display (2027E, 2026E, 2025E)
+    rows.reverse()
+    return rows
 
 
 def build_quarterly_rows(

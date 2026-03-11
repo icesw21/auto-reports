@@ -4,7 +4,11 @@ import json
 import logging
 import re
 
-from openai import OpenAI
+import time
+
+from openai import OpenAI, RateLimitError
+
+from auto_reports.fetchers.rate_limiter import get_llm_limiter
 
 logger = logging.getLogger(__name__)
 
@@ -12,12 +16,16 @@ _DEFAULT_MODEL = "gpt-4.1-mini"
 _MAX_INPUT_CHARS = 8000
 
 
-def _call_llm(api_key: str, model: str, prompt: str, max_tokens: int) -> str:
-    """Shared LLM call with error handling. Returns empty string on failure."""
+def _call_llm(api_key: str, model: str, prompt: str, max_tokens: int, base_url: str = "") -> str:
+    """Shared LLM call with rate limiting and RateLimitError retry."""
     if not model:
         model = _DEFAULT_MODEL
+    client = OpenAI(
+        api_key=api_key, max_retries=3,
+        **({"base_url": base_url} if base_url else {}),
+    )
+    get_llm_limiter().wait()
     try:
-        client = OpenAI(api_key=api_key, max_retries=3)
         response = client.chat.completions.create(
             model=model,
             messages=[{"role": "user", "content": prompt}],
@@ -25,6 +33,25 @@ def _call_llm(api_key: str, model: str, prompt: str, max_tokens: int) -> str:
             max_tokens=max_tokens,
         )
         return (response.choices[0].message.content or "").strip()
+    except RateLimitError as exc:
+        logger.warning("LLM rate limited: %s — retrying with backoff", exc)
+        for attempt in range(3):
+            time.sleep(2 ** (attempt + 1))
+            get_llm_limiter().wait()
+            try:
+                response = client.chat.completions.create(
+                    model=model,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.0,
+                    max_tokens=max_tokens,
+                )
+                return (response.choices[0].message.content or "").strip()
+            except RateLimitError:
+                continue
+            except Exception:
+                break
+        logger.warning("LLM rate limit retries exhausted (model=%s)", model)
+        return ""
     except Exception as exc:
         logger.warning("LLM call failed: %s", exc)
         return ""
@@ -48,7 +75,7 @@ def _parse_json_response(text: str) -> dict | None:
         return None
 
 
-def extract_rights_issue(text: str, api_key: str, model: str = "") -> dict | None:
+def extract_rights_issue(text: str, api_key: str, model: str = "", base_url: str = "") -> dict | None:
     """Extract 유상증자결정 structured data from disclosure text via LLM.
 
     Args:
@@ -86,7 +113,7 @@ def extract_rights_issue(text: str, api_key: str, model: str = "") -> dict | Non
 공시 원문:
 {truncated}"""
 
-    raw = _call_llm(api_key, model, prompt, max_tokens=1024)
+    raw = _call_llm(api_key, model, prompt, max_tokens=1024, base_url=base_url)
     result = _parse_json_response(raw)
     if result is None:
         logger.warning("extract_rights_issue: LLM returned unparseable response")
@@ -94,7 +121,7 @@ def extract_rights_issue(text: str, api_key: str, model: str = "") -> dict | Non
     return result
 
 
-def extract_cb_issuance(text: str, api_key: str, model: str = "") -> dict | None:
+def extract_cb_issuance(text: str, api_key: str, model: str = "", base_url: str = "") -> dict | None:
     """Extract CB/BW 발행결정 structured data from disclosure text via LLM.
 
     Args:
@@ -125,7 +152,7 @@ def extract_cb_issuance(text: str, api_key: str, model: str = "") -> dict | None
 공시 원문:
 {truncated}"""
 
-    raw = _call_llm(api_key, model, prompt, max_tokens=512)
+    raw = _call_llm(api_key, model, prompt, max_tokens=512, base_url=base_url)
     result = _parse_json_response(raw)
     if result is None:
         logger.warning("extract_cb_issuance: LLM returned unparseable response")
@@ -133,7 +160,7 @@ def extract_cb_issuance(text: str, api_key: str, model: str = "") -> dict | None
     return result
 
 
-def extract_stock_option(text: str, api_key: str, model: str = "") -> dict | None:
+def extract_stock_option(text: str, api_key: str, model: str = "", base_url: str = "") -> dict | None:
     """Extract 주식매수선택권부여결정 structured data from disclosure text via LLM.
 
     Args:
@@ -161,7 +188,7 @@ def extract_stock_option(text: str, api_key: str, model: str = "") -> dict | Non
 공시 원문:
 {truncated}"""
 
-    raw = _call_llm(api_key, model, prompt, max_tokens=512)
+    raw = _call_llm(api_key, model, prompt, max_tokens=512, base_url=base_url)
     result = _parse_json_response(raw)
     if result is None:
         logger.warning("extract_stock_option: LLM returned unparseable response")
@@ -169,7 +196,7 @@ def extract_stock_option(text: str, api_key: str, model: str = "") -> dict | Non
     return result
 
 
-def classify_disclosure_type(text: str, api_key: str, model: str = "") -> str:
+def classify_disclosure_type(text: str, api_key: str, model: str = "", base_url: str = "") -> str:
     """Classify the type of 주요사항보고서 disclosure from raw text via LLM.
 
     Args:
@@ -206,7 +233,7 @@ def classify_disclosure_type(text: str, api_key: str, model: str = "") -> str:
 공시 원문:
 {truncated}"""
 
-    raw = _call_llm(api_key, model, prompt, max_tokens=64)
+    raw = _call_llm(api_key, model, prompt, max_tokens=64, base_url=base_url)
     parsed = _parse_json_response(raw)
     if parsed is None:
         logger.warning("classify_disclosure_type: LLM returned unparseable response; defaulting to '기타'")
