@@ -12,12 +12,58 @@ import threading
 import time
 from datetime import datetime
 
+import pandas as pd
 import OpenDartReader
 import requests
 
 from auto_reports.collectors.base import BaseCollector
 from auto_reports.utils.file_utils import sanitize_filename
 from auto_reports.utils.retry import retry_request
+
+
+def _sub_docs_https(rcept_no: str, headers: dict) -> pd.DataFrame | None:
+    """Fetch sub-document list from DART using HTTPS.
+
+    OpenDartReader's sub_docs uses http:// which DART now blocks.
+    This reimplements the same logic over HTTPS.
+    """
+    url = f'https://dart.fss.or.kr/dsaf001/main.do?rcpNo={rcept_no}'
+    r = requests.get(url, headers=headers, timeout=15)
+    r.raise_for_status()
+
+    # Multi-page document regex (same as OpenDartReader)
+    multi_page_re = (
+        r"\s+node[12]\['text'\][ =]+\"(.*?)\"\;"
+        r"\s+node[12]\['id'\][ =]+\"(\d+)\";"
+        r"\s+node[12]\['rcpNo'\][ =]+\"(\d+)\";"
+        r"\s+node[12]\['dcmNo'\][ =]+\"(\d+)\";"
+        r"\s+node[12]\['eleId'\][ =]+\"(\d+)\";"
+        r"\s+node[12]\['offset'\][ =]+\"(\d+)\";"
+        r"\s+node[12]\['length'\][ =]+\"(\d+)\";"
+        r"\s+node[12]\['dtd'\][ =]+\"(.*?)\";"
+        r"\s+node[12]\['tocNo'\][ =]+\"(\d+)\";"
+    )
+    matches = re.findall(multi_page_re, r.text)
+    if matches:
+        rows = []
+        for m in matches:
+            title = m[0]
+            params = f'rcpNo={m[2]}&dcmNo={m[3]}&eleId={m[4]}&offset={m[5]}&length={m[6]}&dtd={m[7]}'
+            doc_url = f'https://dart.fss.or.kr/report/viewer.do?{params}'
+            rows.append([title, doc_url])
+        return pd.DataFrame(rows, columns=['title', 'url'])
+
+    # Single-page document fallback
+    single_re = r"\t\tviewDoc\('(\d+)', '(\d+)', '(\d+)', '(\d+)', '(\d+)', '(\S+)',''\)\;"
+    matches = re.findall(single_re, r.text)
+    if matches:
+        m = matches[0]
+        params = f'rcpNo={m[0]}&dcmNo={m[1]}&eleId={m[2]}&offset={m[3]}&length={m[4]}&dtd={m[5]}'
+        doc_url = f'https://dart.fss.or.kr/report/viewer.do?{params}'
+        return pd.DataFrame([['document', doc_url]], columns=['title', 'url'])
+
+    return None
+
 
 # Global rate limiter for DART API - prevents concurrent request storms
 _dart_api_lock = threading.Lock()
@@ -101,12 +147,15 @@ class DartCollector(BaseCollector):
                 self.logger.info(f"Duplicate file skipped: {file_name}")
                 continue
 
-            # Step 1: Retrieve sub-document list (may fail for exchange disclosures)
+            # Step 1: Retrieve sub-document list via HTTPS
+            # (OpenDartReader uses http:// which DART now blocks)
             try:
-                sub_df = self.dart.sub_docs(rcept_no)
-            except Exception:
-                # OpenDartReader raises NameError for filings without sub-documents
-                self.logger.info(f"No sub_docs available (exchange disclosure): {report_nm}")
+                sub_df = _sub_docs_https(rcept_no, self.headers)
+            except Exception as e:
+                self.logger.info(f"No sub_docs available: {report_nm} ({type(e).__name__})")
+                sub_df = None
+
+            if sub_df is None or sub_df.empty:
                 view_url = f"https://dart.fss.or.kr/dsaf001/main.do?rcpNo={rcept_no}"
                 error_url_list.append(view_url)
                 error_url_list_full.append(f"[{row['rcept_dt']}] | {row['report_nm']} | {view_url}")
