@@ -8,18 +8,30 @@ from auto_reports.models.financial import BalanceSheet, ConsensusItem, IncomeSta
 from auto_reports.models.report import AnnualRow, BalanceSheetRow, QuarterlyRow
 
 
-def to_eok(won: int | None) -> int | None:
-    """Convert won to 억원 (100 million KRW), rounded."""
+def currency_unit(currency: str = "KRW") -> tuple[int, str]:
+    """Return (divisor, unit_label) for the given currency.
+
+    KRW → (100_000_000, "억원")  — 억원 단위
+    Others → (1_000_000, "백만 {currency}") — 백만 단위
+    """
+    if currency == "KRW":
+        return 100_000_000, "억원"
+    return 1_000_000, f"백만 {currency}"
+
+
+def to_eok(won: int | None, currency: str = "KRW") -> int | None:
+    """Convert amount to display unit (억원 for KRW, 백만 for others)."""
     if won is None:
         return None
-    return round(won / 1_0000_0000)
+    divisor, _ = currency_unit(currency)
+    return round(won / divisor)
 
 
-def format_eok(won: Optional[int]) -> str:
-    """Format won amount as 억원 string with comma separators."""
+def format_eok(won: Optional[int], currency: str = "KRW") -> str:
+    """Format amount as display-unit string with comma separators."""
     if won is None:
         return "-"
-    eok = to_eok(won)
+    eok = to_eok(won, currency)
     if eok is None:
         return "-"
     return f"{eok:,}"
@@ -64,11 +76,11 @@ def calc_yoy_change(current: Optional[int], previous: Optional[int]) -> str:
     return f"{sign}{change_pct:.0f}%"
 
 
-def format_income_cell(won: Optional[int], yoy: str) -> str:
+def format_income_cell(won: Optional[int], yoy: str, currency: str = "KRW") -> str:
     """Format an income statement cell like '4,245 (+276%)'."""
     if won is None:
         return "-"
-    eok = to_eok(won)
+    eok = to_eok(won, currency)
     if eok is None:
         return "-"
     return f"{eok:,} ({yoy})"
@@ -80,10 +92,11 @@ def build_balance_sheet_rows(
 ) -> list[BalanceSheetRow]:
     """Build balance sheet table rows from BalanceSheet models."""
     rows = []
+    cur = bs.currency
 
     def _row(label: str, current: Optional[int], previous: Optional[int], prefix: str = "", note_extra: str = "") -> BalanceSheetRow:
-        amount_str = format_eok(current)
-        prev_str = format_eok(previous)
+        amount_str = format_eok(current, cur)
+        prev_str = format_eok(previous, cur)
         note = ""
         if previous is not None and current is not None and previous != 0:
             change_pct = ((current - previous) / abs(previous)) * 100
@@ -132,6 +145,7 @@ def build_annual_rows(
     Expects statements sorted newest-first.
     """
     rows = []
+    cur = statements[0].currency if statements else "KRW"
     for i, stmt in enumerate(statements):
         # Find previous year for YoY
         prev = statements[i + 1] if i + 1 < len(statements) else None
@@ -145,9 +159,9 @@ def build_annual_rows(
 
         rows.append(AnnualRow(
             year=year_str,
-            revenue=_bold_wrap(format_income_cell(stmt.revenue, rev_yoy), bold),
-            operating_income=_bold_wrap(format_income_cell(stmt.operating_income, op_yoy), bold),
-            net_income=_bold_wrap(format_income_cell(stmt.net_income, ni_yoy), bold),
+            revenue=_bold_wrap(format_income_cell(stmt.revenue, rev_yoy, cur), bold),
+            operating_income=_bold_wrap(format_income_cell(stmt.operating_income, op_yoy, cur), bold),
+            net_income=_bold_wrap(format_income_cell(stmt.net_income, ni_yoy, cur), bold),
         ))
 
     return rows
@@ -214,11 +228,12 @@ def build_cumulative_annual_row(
 
     period_label = f"{latest_year}.{latest_q}Q"
 
+    cur = quarterly_statements[0].currency if quarterly_statements else "KRW"
     return AnnualRow(
         year=f"**{period_label}**",
-        revenue=_bold_wrap(format_income_cell(curr_rev, rev_yoy), True),
-        operating_income=_bold_wrap(format_income_cell(curr_op, op_yoy), True),
-        net_income=_bold_wrap(format_income_cell(curr_ni, ni_yoy), True),
+        revenue=_bold_wrap(format_income_cell(curr_rev, rev_yoy, cur), True),
+        operating_income=_bold_wrap(format_income_cell(curr_op, op_yoy, cur), True),
+        net_income=_bold_wrap(format_income_cell(curr_ni, ni_yoy, cur), True),
     )
 
 
@@ -239,6 +254,7 @@ def build_consensus_rows(
 
     # Most recent actual year (annual_statements sorted newest-first)
     prev_stmt = annual_statements[0] if annual_statements else None
+    cur = prev_stmt.currency if prev_stmt else "KRW"
 
     rows = []
     for item in consensus_items:
@@ -248,9 +264,9 @@ def build_consensus_rows(
 
         rows.append(AnnualRow(
             year=item.period,
-            revenue=format_income_cell(item.revenue, rev_yoy),
-            operating_income=format_income_cell(item.operating_income, op_yoy),
-            net_income=format_income_cell(item.net_income, ni_yoy),
+            revenue=format_income_cell(item.revenue, rev_yoy, cur),
+            operating_income=format_income_cell(item.operating_income, op_yoy, cur),
+            net_income=format_income_cell(item.net_income, ni_yoy, cur),
         ))
 
         # Chain: advance base only for non-None fields
@@ -275,6 +291,7 @@ def build_quarterly_rows(
     Each statement should already have YoY strings set if available.
     """
     rows = []
+    cur = statements[0].currency if statements else "KRW"
     for stmt in statements:
         rev_yoy = stmt.revenue_yoy or "-"
         op_yoy = stmt.operating_income_yoy or "-"
@@ -282,9 +299,9 @@ def build_quarterly_rows(
 
         rows.append(QuarterlyRow(
             quarter=f"**{stmt.period}**",
-            revenue=format_income_cell(stmt.revenue, rev_yoy),
-            operating_income=format_income_cell(stmt.operating_income, op_yoy),
-            net_income=format_income_cell(stmt.net_income, ni_yoy),
+            revenue=format_income_cell(stmt.revenue, rev_yoy, cur),
+            operating_income=format_income_cell(stmt.operating_income, op_yoy, cur),
+            net_income=format_income_cell(stmt.net_income, ni_yoy, cur),
         ))
 
     return rows

@@ -32,10 +32,10 @@ links:
 | 고점 | {{ data.price_high }} |
 | {{ data.price_return_label }} | {{ data.price_return_1y }} |
 {%- if data.momentum_text %}
-> **주요 모멘텀**
-{% for line in data.momentum_text.split('\n') if line.strip() %}
-> - {{ line.strip() }}
-{% endfor %}
+> **주요 모멘텀**: {{ data.momentum_text.split('\n')[0].strip() }}
+{%- for line in data.momentum_text.split('\n')[1:] if line.strip() %}
+> {{ line.strip() }}
+{%- endfor %}
 {%- endif %}
 {%- endif %}
 
@@ -71,7 +71,7 @@ links:
 
 > [!info] {{ data.balance_sheet_period }}
 
-| 항목       | 금액 (억원)   | 전년말 (억원) | 비고 (전년말 대비)                 |
+| 항목       | 금액 ({{ data.amount_unit }})   | 전년말 ({{ data.amount_unit }}) | 비고 (전년말 대비)                 |
 | -------- | --------- | --------- | --------------------------- |
 {%- for row in data.balance_sheet_rows %}
 | {{ row.item }} | {{ row.amount }} | {{ row.previous_amount }} | {{ row.note }}             |

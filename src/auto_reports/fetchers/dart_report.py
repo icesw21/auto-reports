@@ -18,6 +18,27 @@ from auto_reports.models.financial import BalanceSheet, IncomeStatementItem
 
 logger = logging.getLogger(__name__)
 
+
+def _fiscal_quarter_end(
+    bsns_year: int, quarter: int, settlement_month: int = 12,
+) -> tuple[int, int]:
+    """Compute (calendar_year, end_month) for a fiscal quarter's period end.
+
+    Args:
+        bsns_year: The fiscal/business year.
+        quarter: 0=annual, 1=Q1, 2=H1(Q2), 3=Q3.
+        settlement_month: Month the fiscal year ends (default 12=December).
+
+    Returns:
+        (year, month) tuple for the period end date.
+    """
+    fy_start = settlement_month % 12 + 1  # e.g. 7 for June FY
+    months_map = {0: 12, 1: 3, 2: 6, 3: 9}
+    end_month = (fy_start - 1 + months_map[quarter]) % 12 or 12
+    year = bsns_year - 1 if end_month > settlement_month else bsns_year
+    return year, end_month
+
+
 # ── Amount pattern: standard Korean won format ──
 # Matches: "1,234,567", "(1,234,567)", "0", but NOT "4,5,6,32" (note refs)
 _AMOUNT_RE = re.compile(r"^\(?\d{1,3}(,\d{3})*\)?$")
@@ -305,13 +326,15 @@ class DartReportFetcher:
 
     def find_rcept_no(
         self, corp: str, year: int, quarter: int = 0,
+        settlement_month: int = 12,
     ) -> str | None:
         """Find the receipt number for a report filing.
 
         Args:
             corp: Ticker or corp_code.
-            year: Business year.
+            year: Business year (fiscal year).
             quarter: 0=annual, 1=Q1, 2=H1, 3=Q3.
+            settlement_month: Fiscal year-end month (default 12=December).
         """
         # Wide search window to catch late filings and corrections
         # (e.g. 기재정정 filings can appear years after the original)
@@ -319,28 +342,24 @@ class DartReportFetcher:
 
         today_str = _date.today().strftime("%Y%m%d")
 
+        # Compute period hint based on settlement_month
+        hint_year, hint_month = _fiscal_quarter_end(year, quarter, settlement_month)
+
         if quarter == 0:
-            start = f"{year}0101"
-            end = today_str
             keyword = "사업보고서"
-            period_hint = f"({year}.12)"
-        elif quarter == 1:
-            start = f"{year}0101"
-            end = today_str
+        elif quarter in (1, 3):
             keyword = "분기보고서"
-            period_hint = f"({year}.03)"
         elif quarter == 2:
-            start = f"{year}0101"
-            end = today_str
             keyword = "반기보고서"
-            period_hint = f"({year}.06)"
-        elif quarter == 3:
-            start = f"{year}0101"
-            end = today_str
-            keyword = "분기보고서"
-            period_hint = f"({year}.09)"
         else:
             return None
+
+        period_hint = f"({hint_year}.{hint_month:02d})"
+
+        # Search window: start from earliest possible filing date
+        start_year = min(year, hint_year)
+        start = f"{start_year}0101"
+        end = today_str
 
         try:
             df = dart_call_with_retry(self.dart.list, corp, start=start, end=end, kind="A")
@@ -507,6 +526,7 @@ class DartReportFetcher:
 
     def get_balance_sheet(
         self, corp: str, year: int, quarter: int = 0,
+        settlement_month: int = 12,
     ) -> BalanceSheet:
         """Fetch and parse balance sheet from report HTML."""
         period_label = str(year) if quarter == 0 else f"{year}.Q{quarter}"
@@ -514,7 +534,7 @@ class DartReportFetcher:
             "Report HTML: fetching BS for %s %d Q%d", corp, year, quarter,
         )
 
-        rcept_no = self.find_rcept_no(corp, year, quarter)
+        rcept_no = self.find_rcept_no(corp, year, quarter, settlement_month=settlement_month)
         if not rcept_no:
             logger.warning("No report found: %s %d Q%d", corp, year, quarter)
             return BalanceSheet(period=period_label)
@@ -540,7 +560,7 @@ class DartReportFetcher:
 
     def get_income_statement(
         self, corp: str, year: int, quarter: int = 0,
-        cumulative: bool = False,
+        cumulative: bool = False, settlement_month: int = 12,
     ) -> IncomeStatementItem:
         """Fetch and parse income statement from report HTML.
 
@@ -548,6 +568,7 @@ class DartReportFetcher:
             cumulative: When True and quarter > 1, extract the cumulative
                 (누적) column instead of the 3-month standalone column.
                 For Q1 or annual reports, this has no effect (Q1 cum = standalone).
+            settlement_month: Fiscal year-end month (default 12=December).
         """
         period_label = str(year) if quarter == 0 else f"{year}.Q{quarter}"
         logger.info(
@@ -555,7 +576,7 @@ class DartReportFetcher:
             corp, year, quarter, cumulative,
         )
 
-        rcept_no = self.find_rcept_no(corp, year, quarter)
+        rcept_no = self.find_rcept_no(corp, year, quarter, settlement_month=settlement_month)
         if not rcept_no:
             return IncomeStatementItem(period=period_label)
 

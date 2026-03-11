@@ -128,6 +128,7 @@ class CompanyConfig(BaseModel):
     name: str
     ticker: str
     corp_code: str = ""
+    settlement_month: int = 12
     tags: list[str] = Field(default_factory=list)
 
 

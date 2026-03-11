@@ -17,13 +17,70 @@ logger = logging.getLogger(__name__)
 def _detect_revenue_unit(text: str) -> str:
     """Detect monetary unit from DART revenue section text.
 
-    Looks for patterns like '(단위: 천원)', '(단위 : 백만원)' etc.
-    Returns '천원', '백만원', '억원', or '백만원' as default.
+    Looks for patterns like '(단위: 천원)', '(단위 : 백만원)',
+    '(단위: 천RMB)', '(단위: 백만CNY)' etc.
+    Returns the matched unit string, or '백만원' as default.
     """
-    m = re.search(r"단위\s*[:：]\s*(천원|백만원|억원)", text)
+    # Match: 천원, 백만원, 억원, 천RMB, 백만CNY, 천USD, 억EUR, etc.
+    m = re.search(
+        r"단위\s*[:：]\s*((천|백만|억)(원|[A-Z]{2,3}|RMB))",
+        text,
+    )
     if m:
         return m.group(1)
     return "백만원"
+
+
+def _build_conv_rule(source_unit: str, display_unit: str) -> str:
+    """Build conversion rule string for LLM prompt.
+
+    Maps source_unit (e.g. '천원', '천RMB', '백만CNY') to display_unit
+    (e.g. '억원', '백만 RMB').
+    """
+    # Parse source unit: prefix (천/백만/억) + currency part (원/RMB/CNY/...)
+    m = re.match(r"(천|백만|억)(.*)", source_unit)
+    if not m:
+        return f"원문의 금액 단위를 {display_unit}로 변환하세요."
+    prefix = m.group(1)
+
+    # If source and display are equivalent, no conversion needed
+    if source_unit == display_unit or source_unit == display_unit.replace(" ", ""):
+        return f"원문의 금액 단위: {source_unit} (변환 불필요, 그대로 사용)"
+
+    # Determine divisor from source prefix to display unit
+    # For KRW: target is 억 (1억 = 100,000천원 = 100백만원 = 1억원)
+    # For foreign: target is 백만 (1백만 = 1,000천 = 1백만)
+    if display_unit == "억원":
+        if prefix == "천":
+            return (
+                f"원문의 금액 단위: {source_unit}\n"
+                f"  → {display_unit} 변환법: 숫자 ÷ 100,000 후 반올림\n"
+                f"  → 예시: 1,192,400 ({source_unit}) ÷ 100,000 = 12 ({display_unit})"
+            )
+        elif prefix == "백만":
+            return (
+                f"원문의 금액 단위: {source_unit}\n"
+                f"  → {display_unit} 변환법: 숫자 ÷ 100 후 반올림\n"
+                f"  → 예시: 1,192 ({source_unit}) ÷ 100 = 12 ({display_unit})"
+            )
+        else:  # 억
+            return f"원문의 금액 단위: {source_unit} (변환 불필요, 그대로 사용)"
+    else:
+        # Foreign currency: target is 백만 {currency}
+        if prefix == "천":
+            return (
+                f"원문의 금액 단위: {source_unit}\n"
+                f"  → {display_unit} 변환법: 숫자 ÷ 1,000 후 반올림\n"
+                f"  → 예시: 1,192,400 ({source_unit}) ÷ 1,000 = 1,192 ({display_unit})"
+            )
+        elif prefix == "백만":
+            return f"원문의 금액 단위: {source_unit} (변환 불필요, 그대로 사용)"
+        else:  # 억
+            return (
+                f"원문의 금액 단위: {source_unit}\n"
+                f"  → {display_unit} 변환법: 숫자 × 100\n"
+                f"  → 예시: 12 ({source_unit}) × 100 = 1,200 ({display_unit})"
+            )
 
 
 def _strip_revenue_summary(text: str) -> str:
@@ -72,12 +129,14 @@ def _strip_revenue_summary(text: str) -> str:
     return '\n'.join(lines[:summary_start] + lines[section_end:])
 
 
-_SYSTEM_PROMPT = """\
+def _system_prompt(display_unit: str = "억원") -> str:
+    """Generate system prompt with the correct display unit."""
+    return f"""\
 당신은 한국 상장기업의 사업보고서를 분석하는 금융 애널리스트입니다.
 사업보고서의 특정 섹션 원문을 받아, 투자 분석에 필요한 핵심 내용만 간결하게 요약합니다.
 - 불필요한 수식어 제거, 핵심 팩트 중심
 - 테이블 데이터는 마크다운 테이블로 정리
-- 금액은 억원 단위로 통일하여 표기 (천원이면 100,000으로, 백만원이면 100으로 나누어 반올림)
+- 금액은 {display_unit} 단위로 통일하여 표기
 - 주요 고객사/매입처 이름이 비공개(A사 등)면 그대로 유지
 - 모든 문장은 반드시 명사형 어미로 종결 (예: ~임, ~함, ~중, ~있음, ~됨). 동사형/형용사형 어미(~한다, ~이다, ~하고 있다) 사용 금지
 """
@@ -103,6 +162,7 @@ def summarize_business_sections(
     api_key: str,
     model: str = "",
     base_url: str = "",
+    currency: str = "KRW",
 ) -> BusinessSummary:
     """Summarize business sections using OpenAI.
 
@@ -125,6 +185,13 @@ def summarize_business_sections(
     )
     summary = BusinessSummary()
 
+    # Determine display unit for amounts
+    if currency == "KRW":
+        _display_unit = "억원"
+    else:
+        _display_unit = f"백만 {currency}"
+    _sys = _system_prompt(_display_unit)
+
     # 1. Business model (사업개요 + 주요제품)
     if 사업개요 or 주요제품:
         prompt = f"""다음은 사업보고서의 '사업의 개요'와 '주요 제품 및 서비스' 섹션입니다.
@@ -138,8 +205,13 @@ def summarize_business_sections(
 위 내용을 바탕으로 핵심 사업, 주요 제품, 경쟁력을 `- ` 불릿 리스트로 3줄 이내로 요약해주세요.
 형식: - (첫째 줄) - (둘째 줄) - (셋째 줄)
 각 줄은 한 문장으로, 명사형 어미로 종결."""
-        summary.business_model = _call_llm(client, model, prompt)
+        summary.business_model = _call_llm(client, model, prompt, _sys)
         time.sleep(2)
+
+    if currency == "KRW":
+        _supplier_conv = "금액은 억원 단위로 변환하여 표기하세요 (천원이면 100,000으로, 백만원이면 100으로 나누어 반올림)."
+    else:
+        _supplier_conv = f"금액은 백만 {currency} 단위로 변환하여 표기하세요 (천{currency}이면 1,000으로 나누어 반올림)."
 
     # 2. Major suppliers (원재료)
     if 원재료:
@@ -149,11 +221,11 @@ def summarize_business_sections(
 
 위 내용에서 핵심 원재료와 주요 공급업체를 자회사/사업부문별로 `- ` 불릿 리스트로 작성해주세요.
 같은 사업부문의 품목은 한 줄에 쉼표로 나열하고, '기타' 항목은 생략하되 마지막에 '등'을 붙여주세요.
-금액은 억원 단위로 변환하여 표기하세요 (천원이면 100,000으로, 백만원이면 100으로 나누어 반올림).
+{_supplier_conv}
 형식 예시:
-- 자회사A: 원재료1 금액억원(업체명, 비중%), 원재료2 금액억원(업체명, 비중%) 등
-- 자회사B: 원재료1 금액억원(업체명, 비중%) 등"""
-        summary.major_suppliers = _call_llm(client, model, prompt)
+- 자회사A: 원재료1 금액{_display_unit}(업체명, 비중%), 원재료2 금액{_display_unit}(업체명, 비중%) 등
+- 자회사B: 원재료1 금액{_display_unit}(업체명, 비중%) 등"""
+        summary.major_suppliers = _call_llm(client, model, prompt, _sys)
         time.sleep(2)
 
     # 3. Major customers + revenue breakdown + order backlog (매출수주)
@@ -163,20 +235,7 @@ def summarize_business_sections(
         매출수주 = _strip_revenue_summary(매출수주)
         # Detect unit for explicit conversion guidance
         unit = _detect_revenue_unit(매출수주)
-        if unit == "천원":
-            conv_rule = (
-                "원문의 금액 단위: 천원\n"
-                "  → 억원 변환법: 숫자 ÷ 100,000 후 반올림\n"
-                "  → 예시: 1,192,400 (천원) ÷ 100,000 = 12 (억원)"
-            )
-        elif unit == "억원":
-            conv_rule = "원문의 금액 단위: 억원 (변환 불필요, 그대로 사용)"
-        else:  # 백만원
-            conv_rule = (
-                "원문의 금액 단위: 백만원\n"
-                "  → 억원 변환법: 숫자 ÷ 100 후 반올림\n"
-                "  → 예시: 1,192 (백만원) ÷ 100 = 12 (억원)"
-            )
+        conv_rule = _build_conv_rule(unit, _display_unit)
 
         prompt = f"""다음은 사업보고서의 '매출 및 수주상황' 섹션입니다.
 
@@ -195,22 +254,22 @@ def summarize_business_sections(
 가장 최근 기수(期)의 데이터만 사용하여 아래 형식의 마크다운 테이블로 작성하세요.
 - 여러 기간의 데이터가 있으면 가장 최근 기수만 사용
 - {conv_rule}
-- 비중(%): 원문의 비중/% 컬럼은 무시할 것. 반드시 변환된 억원 매출액만 사용하여 재계산:
-  비중(%) = 해당 품목 억원 매출액 ÷ (모든 개별 품목 억원 매출액의 합산) × 100, 소수점 첫째자리
+- 비중(%): 원문의 비중/% 컬럼은 무시할 것. 반드시 변환된 {_display_unit} 매출액만 사용하여 재계산:
+  비중(%) = 해당 품목 {_display_unit} 매출액 ÷ (모든 개별 품목 {_display_unit} 매출액의 합산) × 100, 소수점 첫째자리
   ※ 주의: 합계 행의 비중(100%)이나 원문의 비중 수치로 나누지 말 것
 - 동일 품목이 내수/수출로 분리된 경우 합산하여 하나의 행으로 표시 (예: 철탑(내수)+철탑(수출) → 철탑)
 - 품목명에서 (내수), (수출) 등 판매경로 표기는 제거
 - 매출 유형 구분: 제품매출은 해당 사업부문으로, 상품매출은 '상품', 용역/공사매출은 '기타'로 구분
 - 합계 행 포함
 
-| 사업부문 | 품목 | 매출액(억원) | 비중(%) |
+| 사업부문 | 품목 | 매출액({_display_unit}) | 비중(%) |
 |---|---|---|---|
 
 [수주잔고]
 (수주 현황이 있으면 요약, 없으면 "해당사항 없음")
 - {conv_rule}"""
 
-        result = _call_llm(client, model, prompt)
+        result = _call_llm(client, model, prompt, _sys)
         # Parse the structured response
         sections = _parse_structured_response(result)
         summary.major_customers = sections.get("주요매출처", "")
@@ -220,14 +279,15 @@ def summarize_business_sections(
     return summary
 
 
-def _call_llm(client: OpenAI, model: str, prompt: str) -> str:
+def _call_llm(client: OpenAI, model: str, prompt: str, sys_prompt: str = "") -> str:
     """Make an OpenAI API call with error handling and rate limit retry."""
+    _sys = sys_prompt or _system_prompt()
     get_llm_limiter().wait()
     try:
         response = client.chat.completions.create(
             model=model,
             messages=[
-                {"role": "system", "content": _SYSTEM_PROMPT},
+                {"role": "system", "content": _sys},
                 {"role": "user", "content": prompt},
             ],
             temperature=0.3,
@@ -245,7 +305,7 @@ def _call_llm(client: OpenAI, model: str, prompt: str) -> str:
                 response = client.chat.completions.create(
                     model=model,
                     messages=[
-                        {"role": "system", "content": _SYSTEM_PROMPT},
+                        {"role": "system", "content": _sys},
                         {"role": "user", "content": prompt},
                     ],
                     temperature=0.3,

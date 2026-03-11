@@ -19,6 +19,7 @@ class BalanceSheet(BaseModel):
     """Balance sheet data for a single period."""
     period: str = ""  # e.g. "2025.3Q", "2024"
     statement_type: str = "연결"  # 연결 or 별도
+    currency: str = "KRW"  # e.g. "KRW", "CNY", "USD"
     total_assets: Optional[int] = None
     cash_and_equivalents: Optional[int] = None
     short_term_investments: Optional[int] = None
@@ -34,6 +35,7 @@ class BalanceSheet(BaseModel):
 class IncomeStatementItem(BaseModel):
     """Single income statement item with YoY change."""
     period: str = ""  # e.g. "2025", "2025.3Q"
+    currency: str = "KRW"  # e.g. "KRW", "CNY", "USD"
     revenue: Optional[int] = None
     operating_income: Optional[int] = None
     net_income: Optional[int] = None

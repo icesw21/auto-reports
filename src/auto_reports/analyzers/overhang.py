@@ -15,8 +15,9 @@ logger = logging.getLogger(__name__)
 class OverhangAnalyzer:
     """Aggregate overhang data from multiple disclosure events."""
 
-    def __init__(self, total_shares: int):
+    def __init__(self, total_shares: int, currency: str = "KRW"):
         self.total_shares = total_shares
+        self.currency = currency
         # Track instruments by (type, series) -> latest state
         self._instruments: dict[str, _InstrumentState] = {}
 
@@ -550,19 +551,30 @@ class OverhangAnalyzer:
             else:
                 label += state.category
 
-            # Format remaining amount
+            # Format remaining amount (currency-aware)
+            # Use conversion_price * shares as the remaining value for display,
+            # since face_value (used as remaining) underestimates for convertible
+            # preferred stock and certain CB structures.
             remaining_str = None
-            if state.remaining > 0:
-                eok = round(state.remaining / 1_0000_0000)
+            display_remaining = state.remaining
+            if state.conversion_price > 0 and state.convertible_shares > 0:
+                conv_remaining = state.conversion_price * state.convertible_shares
+                if conv_remaining > display_remaining:
+                    display_remaining = conv_remaining
+            if display_remaining > 0:
+                from auto_reports.analyzers.financial import currency_unit
+                divisor, unit_label = currency_unit(self.currency)
+                display_val = round(display_remaining / divisor)
                 shares_str = f"{state.convertible_shares:,}"
-                remaining_str = f"{eok:,} 억원 ({shares_str}주)"
+                remaining_str = f"{display_val:,} {unit_label} ({shares_str}주)"
             elif state.convertible_shares > 0:
                 remaining_str = f"{state.convertible_shares:,}주"
 
-            # Format exercise price
+            # Format exercise price (currency-aware)
             price_str = None
             if state.conversion_price > 0:
-                price_str = f"{state.conversion_price:,}원"
+                cur_suffix = "원" if self.currency == "KRW" else f" {self.currency}"
+                price_str = f"{state.conversion_price:,}{cur_suffix}"
 
             # Calculate dilution ratio
             dilution = None

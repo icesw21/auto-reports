@@ -96,6 +96,7 @@ def _fill_quarterly_cumulative(
     quarterly: list,
     report_fetcher: "DartReportFetcher",
     corp: str,
+    settlement_month: int = 12,
 ) -> None:
     """Fill remaining None fields in quarterly IS using cumulative subtraction.
 
@@ -136,7 +137,7 @@ def _fill_quarterly_cumulative(
             )
             if q1_has_none:
                 q1_html = report_fetcher.get_income_statement(
-                    corp, year, quarter=1,
+                    corp, year, quarter=1, settlement_month=settlement_month,
                 )
                 if not _is_empty_is(q1_html):
                     _merge_none_fields(q1, q1_html)
@@ -150,10 +151,10 @@ def _fill_quarterly_cumulative(
 
         # Fetch H1 and Q3 cumulative from HTML reports
         cum_h1 = report_fetcher.get_income_statement(
-            corp, year, quarter=2, cumulative=True,
+            corp, year, quarter=2, cumulative=True, settlement_month=settlement_month,
         )
         cum_q3 = report_fetcher.get_income_statement(
-            corp, year, quarter=3, cumulative=True,
+            corp, year, quarter=3, cumulative=True, settlement_month=settlement_month,
         )
         logger.debug(
             "Cumulative H1 %d: rev=%s, op=%s, ni=%s",
@@ -185,14 +186,20 @@ def _fill_quarterly_cumulative(
             )
 
 
-def _detect_performance_period(period: dict) -> tuple[int, int, bool]:
+def _detect_performance_period(
+    period: dict, settlement_month: int = 12,
+) -> tuple[int, int, bool]:
     """Detect period type from Performance disclosure period dict.
 
     Returns ``(year, quarter, is_cumulative)`` where:
     - quarter=0 means annual (12-month period)
-    - quarter=1..4 means the quarter the period ends in
-    - is_cumulative=True when the period starts in January and spans
+    - quarter=1..4 means the fiscal quarter the period ends in
+    - is_cumulative=True when the period starts at FY start and spans
       more than one quarter (e.g. H1 or 9-month cumulative).
+
+    Args:
+        period: Dict with start/end date strings.
+        settlement_month: Fiscal year-end month (default 12=December).
     """
     period_start = period.get("- 시작일", "") or period.get("시작일", "")
     period_end = period.get("- 종료일", "") or period.get("종료일", "")
@@ -215,18 +222,21 @@ def _detect_performance_period(period: dict) -> tuple[int, int, bool]:
     if month_span >= 11:
         return (end_year, 0, False)
 
-    # Determine quarter from end month
-    if end_month <= 3:
+    # Determine fiscal quarter from end month relative to settlement_month
+    fy_start = settlement_month % 12 + 1
+    months_into_fy = (end_month - fy_start) % 12 + 1
+
+    if months_into_fy <= 3:
         quarter = 1
-    elif end_month <= 6:
+    elif months_into_fy <= 6:
         quarter = 2
-    elif end_month <= 9:
+    elif months_into_fy <= 9:
         quarter = 3
     else:
         quarter = 4
 
-    # Cumulative if starts in January and spans more than one quarter
-    is_cumulative = (start_month <= 1 and month_span > 4)
+    # Cumulative if starts at FY start and spans more than one quarter
+    is_cumulative = (start_month == fy_start and month_span > 4)
 
     return (end_year, quarter, is_cumulative)
 
@@ -260,6 +270,7 @@ def _integrate_performance_disclosures(
     parsed_disclosures: dict,
     annual_statements: list,
     quarterly_statements: list,
+    settlement_month: int = 12,
 ) -> None:
     """Integrate 매출액또는손익구조 변동 disclosures into IS.
 
@@ -281,7 +292,7 @@ def _integrate_performance_disclosures(
             logger.debug("Performance disclosure skipped: no period data")
             continue
 
-        year, quarter, is_cumulative = _detect_performance_period(perf.period)
+        year, quarter, is_cumulative = _detect_performance_period(perf.period, settlement_month)
         if year == 0:
             logger.debug("Performance disclosure skipped: could not detect period")
             continue
@@ -452,6 +463,7 @@ def _fill_gaps_with_report(
     quarterly: list,
     report_fetcher: "DartReportFetcher",
     corp: str,
+    settlement_month: int = 12,
 ) -> tuple[list, list]:
     """Fill empty income statements using HTML report parsing fallback.
 
@@ -467,7 +479,9 @@ def _fill_gaps_with_report(
         if _is_empty_is(item):
             year, _ = _parse_quarter_from_period(item.period)
             logger.info("Report fallback: annual %d for %s", year, corp)
-            report_item = report_fetcher.get_income_statement(corp, year, quarter=0)
+            report_item = report_fetcher.get_income_statement(
+                corp, year, quarter=0, settlement_month=settlement_month,
+            )
             if not _is_empty_is(report_item):
                 report_item.period = item.period
                 annual[i] = report_item
@@ -479,13 +493,15 @@ def _fill_gaps_with_report(
             if q == 0 or q == 4:
                 continue
             logger.info("Report fallback: %d Q%d for %s", year, q, corp)
-            report_item = report_fetcher.get_income_statement(corp, year, quarter=q)
+            report_item = report_fetcher.get_income_statement(
+                corp, year, quarter=q, settlement_month=settlement_month,
+            )
             if not _is_empty_is(report_item):
                 report_item.period = item.period
                 quarterly[i] = report_item
 
     # Pass 3: Fill remaining None fields via cumulative subtraction
-    _fill_quarterly_cumulative(quarterly, report_fetcher, corp)
+    _fill_quarterly_cumulative(quarterly, report_fetcher, corp, settlement_month=settlement_month)
 
     # Pass 4: Compute Q4 = Annual - (Q1 + Q2 + Q3) for years where we have all three
     yearly_quarters: dict[int, dict[int, IncomeStatementItem]] = {}
@@ -1162,6 +1178,7 @@ def run_pipeline(
                 # BEFORE gap-filling so annual data is available for Q4 computation.
                 _integrate_performance_disclosures(
                     parsed_disclosures, annual_statements, quarterly_with_extra,
+                    settlement_month=company.settlement_month,
                 )
                 if exchange_preliminary_results:
                     _integrate_preliminary_results(
@@ -1188,6 +1205,7 @@ def run_pipeline(
                         quarterly_with_extra,
                         report_fetcher,
                         corp_code,
+                        settlement_month=company.settlement_month,
                     )
 
                 # Filter out empty statements (years/quarters with no API data)
@@ -1217,12 +1235,22 @@ def run_pipeline(
                         ]
 
                 # Balance sheet: try latest quarterly, fall back to annual
-                balance_sheet, prev_balance_sheet = dart_fetcher.get_latest_balance_sheet(corp_code)
+                balance_sheet, prev_balance_sheet = dart_fetcher.get_latest_balance_sheet(
+                    corp_code, settlement_month=company.settlement_month,
+                )
 
                 # Balance sheet report HTML fallback
                 if balance_sheet.total_assets is None:
                     console.print("  [dim]BS fallback via report HTML...[/dim]")
                     current_year = datetime.now().year
+                    current_month = datetime.now().month
+                    sm = company.settlement_month
+                    if current_month <= sm:
+                        ongoing_fy = current_year
+                        completed_fy = current_year - 1
+                    else:
+                        ongoing_fy = current_year + 1
+                        completed_fy = current_year
                     if report_fetcher is None:
                         fs_pref = dart_fetcher.effective_fs_pref
                         report_fetcher = DartReportFetcher(
@@ -1231,21 +1259,25 @@ def run_pipeline(
                     # Try quarterly HTML fallback too
                     for q in (3, 2, 1):
                         balance_sheet = report_fetcher.get_balance_sheet(
-                            corp_code, current_year - 1, quarter=q,
+                            corp_code, ongoing_fy, quarter=q,
+                            settlement_month=sm,
                         )
                         if balance_sheet.total_assets is not None:
                             break
                     if balance_sheet.total_assets is None:
                         balance_sheet = report_fetcher.get_balance_sheet(
-                            corp_code, current_year - 1,
+                            corp_code, completed_fy,
+                            settlement_month=sm,
                         )
                     if balance_sheet.total_assets is None:
                         balance_sheet = report_fetcher.get_balance_sheet(
-                            corp_code, current_year - 2,
+                            corp_code, completed_fy - 1,
+                            settlement_month=sm,
                         )
                     if balance_sheet.total_assets is not None and prev_balance_sheet is None:
                         prev_balance_sheet = report_fetcher.get_balance_sheet(
-                            corp_code, current_year - 2,
+                            corp_code, completed_fy - 1,
+                            settlement_month=sm,
                         )
                         if prev_balance_sheet.total_assets is None:
                             prev_balance_sheet = None
@@ -1316,6 +1348,7 @@ def run_pipeline(
                     api_key=settings.llm_api_key,
                     model=settings.llm_model,
                     base_url=settings.llm_base_url,
+                    currency=balance_sheet.currency if balance_sheet else "KRW",
                 )
                 business_summary.report_source = f"{biz_sections.report_title} 기준"
                 console.print("  [green]Business section summarized[/green]")
@@ -1329,7 +1362,8 @@ def run_pipeline(
     console.print("\n[dim]Analyzing overhang...[/dim]")
 
     total_shares = market_data.shares_outstanding if market_data and market_data.shares_outstanding else 0
-    overhang_analyzer = OverhangAnalyzer(total_shares=total_shares)
+    _oh_currency = balance_sheet.currency if balance_sheet else "KRW"
+    overhang_analyzer = OverhangAnalyzer(total_shares=total_shares, currency=_oh_currency)
     reference_date = ""  # 기준일 (period end date of latest periodic report)
 
     # ─── Phase 3a: Baseline from 정기보고서 재무제표 주석 ───
@@ -1529,20 +1563,36 @@ def run_pipeline(
             f"{fd_mc_eok:,}억원 (희석주식 포함 총 {fd_total_shares:,}주 기준)"
         )
 
+    # Determine if financial statements use a foreign currency
+    _fs_currency = "KRW"
+    if balance_sheet and balance_sheet.currency != "KRW":
+        _fs_currency = balance_sheet.currency
+    elif annual_statements:
+        for _s in annual_statements:
+            if _s.currency != "KRW":
+                _fs_currency = _s.currency
+                break
+    _fs_is_krw = _fs_currency == "KRW"
+
     # Compute PBR = market_cap / equity (from balance sheet)
+    # Skip when financial statements are in foreign currency (KRW market cap vs foreign equity is meaningless)
     pbr_str = ""
     market_cap_won = 0
     if market_data and market_data.stock_price and market_data.shares_outstanding:
         market_cap_won = market_data.stock_price * market_data.shares_outstanding
-    if market_cap_won > 0 and balance_sheet and balance_sheet.total_equity and balance_sheet.total_equity > 0:
+    if _fs_is_krw and market_cap_won > 0 and balance_sheet and balance_sheet.total_equity and balance_sheet.total_equity > 0:
         pbr = market_cap_won / balance_sheet.total_equity
         mc_eok_val = round(market_cap_won / 1_0000_0000)
         eq_eok_val = round(balance_sheet.total_equity / 1_0000_0000)
         pbr_str = f"{pbr:.2f}배 (시가총액 {mc_eok_val:,} 억원 / 자본총계 {eq_eok_val:,} 억원)"
+    elif not _fs_is_krw and market_cap_won > 0:
+        mc_eok_val = round(market_cap_won / 1_0000_0000)
+        pbr_str = f"산출불가 (재무제표 {_fs_currency} 기준, 시가총액 {mc_eok_val:,} 억원)"
 
     # Compute trailing PER = market_cap / most recent full-year net income
+    # Skip when financial statements are in foreign currency
     trailing_per_str = ""
-    if market_cap_won > 0 and annual_statements:
+    if _fs_is_krw and market_cap_won > 0 and annual_statements:
         for stmt in annual_statements:
             if stmt.net_income is not None:
                 mc_eok_val = round(market_cap_won / 1_0000_0000)
@@ -1556,6 +1606,8 @@ def run_pipeline(
                 else:
                     trailing_per_str = f"해당없음 ({stmt.period}년 순손실)"
                 break
+    elif not _fs_is_krw and market_cap_won > 0:
+        trailing_per_str = f"산출불가 (재무제표 {_fs_currency} 기준)"
 
     # Consensus PER from Naver
     consensus_per_str = ""
@@ -1840,6 +1892,18 @@ def run_pipeline(
 
     today = datetime.now().strftime("%Y-%m-%d %H:%M")
 
+    # Determine currency and display unit from financial data
+    from auto_reports.analyzers.financial import currency_unit as _currency_unit
+    _fin_currency = "KRW"
+    if balance_sheet and balance_sheet.currency != "KRW":
+        _fin_currency = balance_sheet.currency
+    elif annual_statements:
+        for _stmt in annual_statements:
+            if _stmt.currency != "KRW":
+                _fin_currency = _stmt.currency
+                break
+    _, _amount_unit = _currency_unit(_fin_currency)
+
     report_data = ReportData(
         frontmatter=ReportFrontmatter(
             created=today,
@@ -1847,6 +1911,7 @@ def run_pipeline(
             tags=company.tags,
         ),
         company_name=company.name,
+        amount_unit=_amount_unit,
         market_cap_str=market_cap_str or "데이터 없음",
         latest_pbr_str=pbr_str or "데이터 없음",
         trailing_per_str=trailing_per_str or "데이터 없음",
@@ -1882,7 +1947,7 @@ def run_pipeline(
             price_history.return_label
             if price_history else "1년수익률"
         ),
-        momentum_text=momentum_text.replace("\n", " ").replace("\r", "").strip(),
+        momentum_text=momentum_text.replace("\r", "").strip(),
         balance_sheet_period=bs_period or "데이터 없음",
         balance_sheet_prev_period=bs_prev_period,
         balance_sheet_rows=bs_rows,

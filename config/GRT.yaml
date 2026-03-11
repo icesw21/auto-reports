@@ -1,0 +1,15 @@
+company:
+  name: GRT
+  ticker: '900290'
+  settlement_month: 6
+  tags: []
+report:
+  output_dir: ''
+  years: 5
+  quarters: 8
+  statement_type: 연결
+disclosures:
+  exchange_disclosures_file: C:/OneDrive/stocks/GRT/GRT_exchange_disclosure.json
+analysis:
+  reports_dir: C:/OneDrive/stocks/GRT/reports
+  news_file: C:/OneDrive/stocks/GRT/GRT_news_20260311.json

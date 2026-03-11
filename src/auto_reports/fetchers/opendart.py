@@ -178,6 +178,7 @@ class OpenDartFetcher:
         self.delay = delay
         self.preferred_fs_div = fs_div  # "CFS" (연결) or "OFS" (별도)
         self._cfs_succeeded = False  # Track whether CFS ever returned data
+        self._last_currency = "KRW"  # Track currency of last fetched data
 
     @property
     def effective_fs_pref(self) -> str:
@@ -226,26 +227,36 @@ class OpenDartFetcher:
         if not _is_valid_df(df):
             return None, stmt_label
 
-        # Filter to KRW only — some companies (e.g. 코오롱티슈진) report
-        # in both USD and KRW; we want only KRW-denominated rows.
-        # If KRW rows don't exist or have all-zero amounts, return None
-        # so the caller can fall back to the HTML report fetcher which
-        # correctly identifies and selects KRW-denominated tables.
+        # Filter currency — prefer KRW; if not available, use the single
+        # foreign currency (e.g. CNY for Chinese subsidiaries).
         if "currency" in df.columns:
             krw_df = df[df["currency"] == "KRW"]
             if _is_valid_df(krw_df) and _has_meaningful_amounts(krw_df):
                 df = krw_df
+                self._last_currency = "KRW"
                 if self.preferred_fs_div == "CFS":
                     self._cfs_succeeded = True
             else:
-                logger.warning(
-                    "No meaningful KRW amounts in API for %s %d; "
-                    "returning None to trigger HTML report fallback",
-                    corp_code, year,
-                )
-                return None, stmt_label
+                # No KRW rows — check if there's a single foreign currency
+                currencies = df["currency"].dropna().unique().tolist()
+                if len(currencies) == 1 and _has_meaningful_amounts(df):
+                    self._last_currency = currencies[0]
+                    logger.info(
+                        "Using %s currency for %s %d (no KRW data)",
+                        self._last_currency, corp_code, year,
+                    )
+                    if self.preferred_fs_div == "CFS":
+                        self._cfs_succeeded = True
+                else:
+                    logger.warning(
+                        "No meaningful amounts in API for %s %d (currencies: %s); "
+                        "returning None to trigger HTML report fallback",
+                        corp_code, year, currencies,
+                    )
+                    return None, stmt_label
         else:
             # No currency column — standard KRW-only company
+            self._last_currency = "KRW"
             if self.preferred_fs_div == "CFS":
                 self._cfs_succeeded = True
 
@@ -324,7 +335,7 @@ class OpenDartFetcher:
             logger.warning("Empty balance sheet data: %s %d", corp_code, year)
             return BalanceSheet(period=period_label)
 
-        bs = BalanceSheet(period=period_label, statement_type=stmt_label)
+        bs = BalanceSheet(period=period_label, statement_type=stmt_label, currency=self._last_currency)
         amount_col = self._detect_amount_col(df)
 
         for field, names in _BS_FIELD_NAMES.items():
@@ -360,7 +371,7 @@ class OpenDartFetcher:
         if not _is_valid_df(df):
             return IncomeStatementItem(period=period_label)
 
-        item = IncomeStatementItem(period=period_label)
+        item = IncomeStatementItem(period=period_label, currency=self._last_currency)
         # For quarterly cumulative, prefer thstrm_add_amount (누적)
         if cumulative and quarter > 0:
             amount_col = self._detect_cumulative_amount_col(df)
@@ -782,40 +793,65 @@ class OpenDartFetcher:
     # ------------------------------------------------------------------
 
     def get_latest_balance_sheet(
-        self, corp_code: str,
+        self, corp_code: str, settlement_month: int = 12,
     ) -> tuple[BalanceSheet, BalanceSheet | None]:
         """Fetch the latest available balance sheet, trying quarterly first.
 
-        Tries: Q3 → Q2 → Q1 of current year-1, then annual of year-1, year-2.
+        Tries: Q3 → Q2 → Q1 of ongoing FY, then Q3 → Q2 → Q1 of completed FY,
+        then annual of completed FY.
         Returns (current_bs, previous_bs_or_None).
-        """
-        current_year = date.today().year
-        target_year = current_year - 1  # e.g. 2025 if now 2026
 
-        # Try quarterly reports for the most recent year (newest first)
+        Args:
+            corp_code: DART corp code.
+            settlement_month: Fiscal year-end month (default 12=December).
+        """
+        today = date.today()
+        current_year = today.year
+        current_month = today.month
+
+        # Determine the ongoing and last completed fiscal years
+        if current_month <= settlement_month:
+            ongoing_fy = current_year
+            completed_fy = current_year - 1
+        else:
+            ongoing_fy = current_year + 1
+            completed_fy = current_year
+
+        # Try quarterly reports for the ongoing fiscal year (newest first)
         for q in (3, 2, 1):
-            bs = self.get_balance_sheet(corp_code, target_year, quarter=q)
+            bs = self.get_balance_sheet(corp_code, ongoing_fy, quarter=q)
             if bs.total_assets is not None:
-                # Previous BS = annual of prior year
-                prev_bs = self.get_balance_sheet(corp_code, target_year - 1)
+                prev_bs = self.get_balance_sheet(corp_code, completed_fy)
                 if prev_bs.total_assets is None:
                     prev_bs = None
-                logger.info("Latest BS from %d Q%d", target_year, q)
+                logger.info("Latest BS from FY%d Q%d", ongoing_fy, q)
                 return bs, prev_bs
 
-        # Fall back to annual reports
-        bs = self.get_balance_sheet(corp_code, target_year)
+        # Try quarterly reports for the completed fiscal year (newest first)
+        # e.g. settlement_month=12, today=2026-03: FY2025 Q3 (2025.09) may exist
+        # even though FY2025 annual (사업보고서) hasn't been filed yet.
+        for q in (3, 2, 1):
+            bs = self.get_balance_sheet(corp_code, completed_fy, quarter=q)
+            if bs.total_assets is not None:
+                prev_bs = self.get_balance_sheet(corp_code, completed_fy - 1)
+                if prev_bs.total_assets is None:
+                    prev_bs = None
+                logger.info("Latest BS from FY%d Q%d", completed_fy, q)
+                return bs, prev_bs
+
+        # Fall back to annual of completed fiscal year
+        bs = self.get_balance_sheet(corp_code, completed_fy)
         if bs.total_assets is not None:
-            prev_bs = self.get_balance_sheet(corp_code, target_year - 1)
+            prev_bs = self.get_balance_sheet(corp_code, completed_fy - 1)
             if prev_bs.total_assets is None:
                 prev_bs = None
             return bs, prev_bs
 
-        # Try year-2 annual
-        bs = self.get_balance_sheet(corp_code, target_year - 1)
+        # Try year before completed FY
+        bs = self.get_balance_sheet(corp_code, completed_fy - 1)
         prev_bs = None
         if bs.total_assets is not None:
-            prev_bs_candidate = self.get_balance_sheet(corp_code, target_year - 2)
+            prev_bs_candidate = self.get_balance_sheet(corp_code, completed_fy - 2)
             prev_bs = prev_bs_candidate if prev_bs_candidate.total_assets is not None else None
 
         return bs, prev_bs
@@ -1067,7 +1103,7 @@ def _subtract_income(
     later - earlier = standalone period.
     If either is missing data, returns what's available.
     """
-    result = IncomeStatementItem(period=period)
+    result = IncomeStatementItem(period=period, currency=later.currency)
 
     for field in ("revenue", "operating_income", "net_income"):
         later_val = getattr(later, field)

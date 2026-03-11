@@ -126,5 +126,8 @@ class ReportData(BaseModel):
     # Section 7: 결론
     conclusion: str = ""  # LLM-generated conclusion
 
+    # Currency / unit info
+    amount_unit: str = "억원"  # e.g. "억원", "백만 CNY"
+
     # Company info
     company_name: str = ""

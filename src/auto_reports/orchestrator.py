@@ -239,6 +239,14 @@ def run_init_all(
     config_dir.mkdir(exist_ok=True)
     stocks_base = Path(settings.stocks_base_dir)
 
+    # Initialize DART reader for settlement month auto-detection
+    dart_reader = None
+    try:
+        import OpenDartReader
+        dart_reader = OpenDartReader(settings.dart_api_key)
+    except Exception:
+        pass
+
     created = 0
     for ticker, name in stocks.items():
         config_path = config_dir / f"{name}.yaml"
@@ -262,9 +270,22 @@ def run_init_all(
             if reports_sub.is_dir():
                 reports_dir = str(reports_sub).replace("\\", "/")
 
+        # Auto-detect settlement month from DART API
+        settlement_month = 12
+        if dart_reader is not None:
+            try:
+                info = dart_reader.company(ticker)
+                if isinstance(info, dict) and info.get("acc_mt"):
+                    settlement_month = int(info["acc_mt"])
+            except Exception:
+                pass  # Default to 12 on any error
+
         tag_list = list(tags) if tags else []
+        company_data: dict = {"name": name, "ticker": ticker, "tags": tag_list}
+        if settlement_month != 12:
+            company_data["settlement_month"] = settlement_month
         config_data = {
-            "company": {"name": name, "ticker": ticker, "tags": tag_list},
+            "company": company_data,
             "report": {
                 "output_dir": "",
                 "years": 5,
