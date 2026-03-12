@@ -112,7 +112,16 @@ class DartCollector(BaseCollector):
         if stock_code == '':
             df = self.dart.list(company_name, start=start_date, end=end_date)
         else:
-            df = self.dart.list(stock_code, start=start_date, end=end_date)
+            try:
+                df = self.dart.list(stock_code, start=start_date, end=end_date)
+            except ValueError:
+                # KONEX tickers (e.g. '0004V0') may not be found by stock code;
+                # fall back to company name search.
+                self.logger.info(
+                    "Stock code %s not found, falling back to name: %s",
+                    stock_code, company_name,
+                )
+                df = self.dart.list(company_name, start=start_date, end=end_date)
 
         if df is None or df.empty:
             self.logger.warning(f"No DART results for: {company_name}")
