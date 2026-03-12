@@ -33,12 +33,25 @@ _BS_FIELD_NAMES: dict[str, list[str]] = {
     "cash_and_equivalents": ["현금및현금성자산"],
     "short_term_investments": ["단기금융상품"],
     "total_liabilities": ["부채총계"],
+    "short_term_debt_and_bonds": ["단기차입금및사채", "유동 차입금", "유동차입금"],
+    "long_term_debt_and_bonds": ["장기차입금및사채"],
     "short_term_borrowings": ["단기차입금"],
     "current_long_term_debt": ["유동성장기부채", "유동성장기차입금"],
     "current_bonds": ["유동성사채"],
     "long_term_borrowings": ["장기차입금"],
     "bonds": ["사채"],
     "total_equity": ["자본총계"],
+}
+
+# Substring exclusions: when doing substring matching, if the account name
+# contains any of the exclusion strings, skip it. Prevents e.g. "사채"
+# from matching "전환사채" or "유동성전환사채".
+_BS_SUBSTRING_EXCLUSIONS: dict[str, list[str]] = {
+    "사채": ["유동성", "전환", "할인", "할증", "상환", "교환", "차입금"],
+    "차입금": ["장기", "유동성"],
+    "장기차입금": ["유동성", "유동"],
+    "자본총계": ["부채"],
+    "부채총계": ["자본"],
 }
 
 # Income statement field -> Korean account name variants
@@ -287,10 +300,16 @@ class OpenDartFetcher:
             mask = filtered[account_col] == name
             if mask.any():
                 return _parse_amount(filtered[mask].iloc[0][amount_col])
-            # Substring match
+            # Substring match (with exclusions for ambiguous names)
             mask = filtered[account_col].str.contains(name, na=False, regex=False)
             if mask.any():
-                return _parse_amount(filtered[mask].iloc[0][amount_col])
+                exclusions = _BS_SUBSTRING_EXCLUSIONS.get(name, [])
+                if exclusions:
+                    # Filter out rows where account name contains any exclusion
+                    for excl in exclusions:
+                        mask = mask & ~filtered[account_col].str.contains(excl, na=False, regex=False)
+                if mask.any():
+                    return _parse_amount(filtered[mask].iloc[0][amount_col])
 
         return None
 
@@ -298,17 +317,35 @@ class OpenDartFetcher:
     # Corp code resolution
     # ------------------------------------------------------------------
 
-    def resolve_corp_code(self, ticker: str) -> str:
-        """Resolve stock ticker to DART corp_code."""
+    def resolve_corp_code(self, ticker: str, company_name: str = "") -> str:
+        """Resolve stock ticker to DART corp_code.
+
+        Falls back to company name lookup when ticker-based lookup fails
+        (e.g. KONEX tickers like '0004V0' that contain letters).
+        """
         try:
             code = self.dart.find_corp_code(ticker)
-            if not code:
-                raise ValueError(f"No corp_code found for ticker: {ticker}")
-            logger.info("Resolved ticker %s -> corp_code %s", ticker, code)
-            return code
+            if code:
+                logger.info("Resolved ticker %s -> corp_code %s", ticker, code)
+                return code
         except Exception:
-            logger.exception("Failed to resolve ticker: %s", ticker)
-            raise
+            logger.debug("find_corp_code failed for ticker: %s", ticker)
+
+        # Fallback: lookup by company name (handles KONEX tickers etc.)
+        if company_name:
+            try:
+                results = self.dart.company_by_name(company_name)
+                if results:
+                    code = results[0]["corp_code"]
+                    logger.info(
+                        "Resolved company name '%s' -> corp_code %s",
+                        company_name, code,
+                    )
+                    return code
+            except Exception:
+                logger.debug("company_by_name failed for: %s", company_name)
+
+        raise ValueError(f"No corp_code found for ticker: {ticker}")
 
     # ------------------------------------------------------------------
     # Balance sheet
@@ -1105,12 +1142,20 @@ def _subtract_income(
     """
     result = IncomeStatementItem(period=period, currency=later.currency)
 
+    # Check if earlier period has any data at all
+    earlier_has_data = any(
+        getattr(earlier, f) is not None
+        for f in ("revenue", "operating_income", "net_income")
+    )
+
     for field in ("revenue", "operating_income", "net_income"):
         later_val = getattr(later, field)
         earlier_val = getattr(earlier, field)
         if later_val is not None and earlier_val is not None:
             setattr(result, field, later_val - earlier_val)
-        # If only later is available but earlier is None, we can't compute standalone
-        # (cumulative without base = unknown standalone), so leave as None
+        elif later_val is not None and not earlier_has_data:
+            # Earlier period entirely missing (e.g. newly listed company):
+            # use cumulative value as-is rather than discarding
+            setattr(result, field, later_val)
 
     return result

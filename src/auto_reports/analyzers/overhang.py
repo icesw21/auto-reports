@@ -30,7 +30,10 @@ class OverhangAnalyzer:
         series = issuance.bond_type.series
         kind = issuance.bond_type.kind or ""
 
-        # Determine instrument category
+        # Determine instrument category (skip 교환사채 — no dilution)
+        if "교환" in kind:
+            logger.info("Skipping exchangeable bond (교환사채) series %s", series)
+            return
         if "전환" in kind:
             category = "CB"
         elif "신주인수권" in kind:
@@ -486,14 +489,19 @@ class OverhangAnalyzer:
         for sc in data.get("share_changes", []):
             series = sc.get("series")
             new_shares = sc.get("shares_after")
-            if new_shares is None:
+            unconverted = sc.get("unconverted")
+            if new_shares is None and unconverted is None:
                 continue
 
             if series is not None:
                 for key, state in self._instruments.items():
                     if state.series == series:
-                        state.convertible_shares = new_shares
-                        logger.debug("Updated shares for %s: %d", key, new_shares)
+                        if new_shares is not None:
+                            state.convertible_shares = new_shares
+                            logger.debug("Updated shares for %s: %d", key, new_shares)
+                        if unconverted is not None:
+                            state.remaining = unconverted
+                            logger.debug("Updated remaining for %s: %d", key, unconverted)
                         break
             else:
                 # No-series format: match by shares_before or current_shares
@@ -501,8 +509,12 @@ class OverhangAnalyzer:
                 if old_shares:
                     for key, state in self._instruments.items():
                         if state.convertible_shares == old_shares:
-                            state.convertible_shares = new_shares
-                            logger.debug("Updated shares for %s: %d (matched by old shares)", key, new_shares)
+                            if new_shares is not None:
+                                state.convertible_shares = new_shares
+                                logger.debug("Updated shares for %s: %d (matched by old shares)", key, new_shares)
+                            if unconverted is not None:
+                                state.remaining = unconverted
+                                logger.debug("Updated remaining for %s: %d", key, unconverted)
                             break
 
     def add_stock_options(self, shares: int) -> None:

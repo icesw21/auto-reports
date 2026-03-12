@@ -1161,7 +1161,7 @@ def run_pipeline(
             dart_fetcher = OpenDartFetcher(settings.dart_api_key, fs_div=fs_div)
             corp_code = company.corp_code
             if not corp_code:
-                corp_code = dart_fetcher.resolve_corp_code(company.ticker)
+                corp_code = dart_fetcher.resolve_corp_code(company.ticker, company.name)
 
             if corp_code:
                 financials = dart_fetcher.get_multi_year_financials(

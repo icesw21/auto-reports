@@ -56,26 +56,33 @@ def generate_stock_chart(
         ma20 = ma20_full.tail(days)
         ma60 = ma60_full.tail(days)
 
-        apds = [
-            mpf.make_addplot(ma20, label="20MA"),
-            mpf.make_addplot(ma60, label="60MA"),
-        ]
+        apds = []
+        legend_labels = []
+        if not ma20.dropna().empty:
+            apds.append(mpf.make_addplot(ma20, label="20MA"))
+            legend_labels.append("20MA")
+        if not ma60.dropna().empty:
+            apds.append(mpf.make_addplot(ma60, label="60MA"))
+            legend_labels.append("60MA")
 
         # Chart style: red up, blue down (Korean convention)
         mc = mpf.make_marketcolors(up="red", down="blue", inherit=True)
         style = mpf.make_mpf_style(marketcolors=mc, gridstyle="--", y_on_right=False)
 
-        fig, axlist = mpf.plot(
-            df,
+        plot_kwargs = dict(
             type="candle",
-            addplot=apds,
             volume=True,
             style=style,
             figsize=(12, 6),
             returnfig=True,
         )
+        if apds:
+            plot_kwargs["addplot"] = apds
 
-        axlist[0].legend(["20MA", "60MA"], loc="upper left")
+        fig, axlist = mpf.plot(df, **plot_kwargs)
+
+        if legend_labels:
+            axlist[0].legend(legend_labels, loc="upper left")
 
         # Save
         out_path = Path(output_dir)

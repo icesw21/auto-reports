@@ -118,15 +118,25 @@ def build_balance_sheet_rows(
     cash_total = _sum_optional(bs.cash_and_equivalents, bs.short_term_investments)
     prev_cash_total = _sum_optional(prev.cash_and_equivalents, prev.short_term_investments) if prev else None
 
-    # 이자부부채 = 단기차입금 + 유동성장기부채 + 유동성사채 + 장기차입금 + 사채
-    debt_total = _sum_optional(
-        bs.short_term_borrowings, bs.current_long_term_debt,
-        bs.current_bonds, bs.long_term_borrowings, bs.bonds,
-    )
-    prev_debt_total = _sum_optional(
-        prev.short_term_borrowings, prev.current_long_term_debt,
-        prev.current_bonds, prev.long_term_borrowings, prev.bonds,
-    ) if prev else None
+    # 이자부부채: 유동/비유동 각각 통합 계정이 있으면 우선 사용
+    # 통합: 단기차입금및사채 / 유동 차입금  |  장기차입금및사채
+    # 개별: 단기차입금 + 유동성장기부채 + 유동성사채  |  장기차입금 + 사채
+    def _calc_debt(sheet: BalanceSheet) -> Optional[int]:
+        if sheet.short_term_debt_and_bonds is not None:
+            short = sheet.short_term_debt_and_bonds
+        else:
+            short = _sum_optional(
+                sheet.short_term_borrowings, sheet.current_long_term_debt,
+                sheet.current_bonds,
+            )
+        if sheet.long_term_debt_and_bonds is not None:
+            long = sheet.long_term_debt_and_bonds
+        else:
+            long = _sum_optional(sheet.long_term_borrowings, sheet.bonds)
+        return _sum_optional(short, long)
+
+    debt_total = _calc_debt(bs)
+    prev_debt_total = _calc_debt(prev) if prev else None
 
     rows.append(_row("자산총계", bs.total_assets, prev.total_assets if prev else None, "bold"))
     rows.append(_row("현금성자산", cash_total, prev_cash_total, "sub"))
@@ -201,16 +211,24 @@ def build_cumulative_annual_row(
         return None
 
     # Sum Q1..Qn for latest year
+    # For newly-listed companies, earlier quarters may have no data;
+    # treat contiguous missing quarters from the start as zero.
     def _sum_field(items: dict[int, IncomeStatementItem], max_q: int, field: str) -> int | None:
         values = []
+        found_data = False
         for q in range(1, max_q + 1):
             if q not in items:
-                return None
+                if found_data:
+                    return None  # gap in the middle → unreliable
+                continue
             val = getattr(items[q], field)
             if val is None:
-                return None
+                if found_data:
+                    return None  # gap in the middle
+                continue
+            found_data = True
             values.append(val)
-        return sum(values)
+        return sum(values) if values else None
 
     curr_rev = _sum_field(yearly[latest_year], latest_q, "revenue")
     curr_op = _sum_field(yearly[latest_year], latest_q, "operating_income")
