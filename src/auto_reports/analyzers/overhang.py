@@ -373,6 +373,18 @@ class OverhangAnalyzer:
                     )
             return
 
+        # Skip 교환사채 (exchangeable bond) exercises — no dilution
+        daily = data.get("daily_claims") or []
+        notes = data.get("notes") or ""
+        is_exchange_bond = (
+            any("교환" in (d.get("bd_knd") or "") for d in daily)
+            or "교환사채" in notes
+            or "교환청구권" in notes
+        )
+        if is_exchange_bond:
+            logger.info("Skipping exchangeable bond exercise (교환사채)")
+            return
+
         for bal in data.get("cb_balance", []):
             series = bal.get("series")
 
