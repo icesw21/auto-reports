@@ -394,6 +394,18 @@ def _normalize_instrument(item: dict) -> dict | None:
     conversion_price = _safe_int(item.get("conversion_price", 0))
     convertible_shares = _safe_int(item.get("convertible_shares", 0))
 
+    # Validate face_value against conversion_price × convertible_shares.
+    # LLMs sometimes misconvert 천원/백만원 units, producing a face_value
+    # that is 1000x or 1,000,000x the expected amount.
+    if face_value and conversion_price and convertible_shares:
+        expected = conversion_price * convertible_shares
+        if expected > 0:
+            ratio = face_value / expected
+            if 900 < ratio < 1100:
+                face_value = expected
+            elif 900_000 < ratio < 1_100_000:
+                face_value = expected
+
     # Calculate convertible_shares if missing (CB/BW only; SO has no face_value)
     if not convertible_shares and face_value and conversion_price and category != "SO":
         convertible_shares = face_value // conversion_price

@@ -75,12 +75,17 @@ def _kv_has(kv: dict[str, str], fragment: str) -> bool:
 # We match on decoded Korean text from the bold heading span instead.
 
 def _get_heading(soup: BeautifulSoup) -> str:
-    """Return the primary document heading (decoded Korean)."""
+    """Return the primary document heading (decoded Korean).
+
+    For correction disclosures (기재정정), the first bold span is
+    '정정신고(보고)' which is not the actual disclosure type.  Skip it
+    and return the next meaningful bold span instead.
+    """
     for span in soup.find_all("span"):
         style = span.get("style", "")
         if "font-weight:bold" in style or "font-weight: bold" in style:
             txt = clean_text(span.get_text())
-            if txt:
+            if txt and "정정신고" not in txt:
                 return txt
     title = soup.find("title")
     if title:
@@ -260,24 +265,51 @@ def parse_exchange_overhang_exercise(soup: BeautifulSoup) -> dict:
     if doc_type == "주식매수선택권행사":
         return _parse_so_exercise(tables, doc_type)
 
-    kv = table_to_dict(tables[0])
+    # Identify tables by content rather than position, to handle correction
+    # disclosures (기재정정) which prepend metadata tables.
+    kv_table = None
+    daily_table = None
+    balance_table = None
+
+    for t in tables:
+        rows = t.find_all("tr")
+        if not rows:
+            continue
+        first_row_text = " ".join(_row_texts(rows[0]))
+        full_text = t.get_text()
+
+        if "청구일자" in first_row_text or "행사일자" in first_row_text:
+            daily_table = t
+        elif "회차" in first_row_text and ("권면" in first_row_text or "미잔액" in first_row_text or "미전환" in first_row_text or "전환가능" in first_row_text):
+            balance_table = t
+        elif "행사주식수 누계" in full_text and "발행주식총수" in full_text:
+            kv_table = t
+
+    if kv_table is None:
+        kv_table = tables[0]
+
+    kv = table_to_dict(kv_table)
 
     cumulative_shares = _find_cumulative_shares(kv)
     total_shares = _find_total_shares(kv)
     ratio_pct = _find_ratio(kv)
 
-    # Find data tables dynamically: skip KV (table 0) and label-only tables (< 2 rows).
-    # Some formats wrap section labels in separate <table> (5 tables total),
-    # others use <span> labels (3 tables total).
-    data_tables = [t for t in tables[1:] if len(t.find_all("tr")) >= 2]
+    # Fallback: if content-based detection missed tables, use positional
+    if daily_table is None or balance_table is None:
+        kv_idx = tables.index(kv_table) if kv_table in tables else 0
+        data_tables = [t for t in tables[kv_idx + 1:] if len(t.find_all("tr")) >= 2]
+        if daily_table is None and len(data_tables) >= 1:
+            daily_table = data_tables[0]
+        if balance_table is None and len(data_tables) >= 2:
+            balance_table = data_tables[1]
 
     daily_claims: list[dict] = []
-    if len(data_tables) >= 1:
-        daily_claims = _parse_daily_claims(data_tables[0])
+    if daily_table is not None:
+        daily_claims = _parse_daily_claims(daily_table)
 
     cb_balance: list[dict] = []
-    if len(data_tables) >= 2:
-        cb_balance = _parse_cb_balance(data_tables[1])
+    if balance_table is not None:
+        cb_balance = _parse_cb_balance(balance_table)
 
     notes = _find_notes(kv)
     history = _find_history(kv)

@@ -576,15 +576,13 @@ class OverhangAnalyzer:
                 label += state.category
 
             # Format remaining amount (currency-aware)
-            # Use conversion_price * shares as the remaining value for display,
-            # since face_value (used as remaining) underestimates for convertible
-            # preferred stock and certain CB structures.
+            # Prefer conversion_price × shares when available, as it's computed
+            # from verified terms.  Fall back to state.remaining (face_value)
+            # only when conversion terms are incomplete.
             remaining_str = None
             display_remaining = state.remaining
             if state.conversion_price > 0 and state.convertible_shares > 0:
-                conv_remaining = state.conversion_price * state.convertible_shares
-                if conv_remaining > display_remaining:
-                    display_remaining = conv_remaining
+                display_remaining = state.conversion_price * state.convertible_shares
             if display_remaining > 0:
                 from auto_reports.analyzers.financial import currency_unit
                 divisor, unit_label = currency_unit(self.currency)
