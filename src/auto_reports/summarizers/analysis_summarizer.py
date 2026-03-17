@@ -435,7 +435,7 @@ def generate_momentum_text(
     using sections 1-4, research reports, and news.
 
     Returns:
-        Momentum text string (1-2 sentences), or empty string.
+        Momentum text string (3-5 single-sentence items, newline-separated), or empty string.
     """
     if not model:
         model = "gpt-4.1-mini"
@@ -446,12 +446,18 @@ def generate_momentum_text(
         f"당신은 전문 금융 분석가입니다. 다음은 {company_name}에 대한 소스 문서입니다.\n\n"
         f"{sources_content}\n\n"
         f"위 소스를 바탕으로 이 종목의 최근 1년간 주요 모멘텀(주가 상승/하락 촉매)을 "
-        f"3~5개 항목으로 요약해주세요.\n"
-        f"- 핵심 이벤트, 수주/계약, 실적 변화, 산업 트렌드 등을 포함\n"
-        f"- 각 항목은 반드시 온점(.)으로 종결할 것\n"
-        f"- 각 항목은 반드시 줄바꿈(\\n)으로 구분할 것 (한 줄에 한 항목만)\n"
-        f"- 각 항목은 명사/명사구로 자연스럽게 종결할 것 (예: 수주 확보, 실적 개선). '~임', '~함' 같은 어색한 접미사 금지\n"
-        f"- 항목만 응답 (머리말/꼬리말/번호/불릿 불필요)"
+        f"3~5개 항목으로 요약해주세요.\n\n"
+        f"### 작성 규칙\n"
+        f"- 각 항목은 한 문장으로 작성하되, 구체적 근거(시기, 제품명, 고객사, 수치 등)를 포함할 것\n"
+        f"- 핵심 이벤트, 수주/계약, 실적 변화, 산업 트렌드, 정책 변화, 리스크 요인 등을 다룰 것\n"
+        f"- 명사형 어미로 종결할 것 (예: '~전망', '~기대', '~가능성', '~발생'). "
+        f"'~임', '~함', '~됨' 같은 접미사 금지\n"
+        f"- 각 항목은 줄바꿈(\\n)으로 구분 (한 줄에 한 항목만)\n"
+        f"- 항목만 응답 (머리말/꼬리말/번호/불릿 불필요)\n\n"
+        f"### 좋은 예시\n"
+        f"2025년 4분기 싱가포르향 대규모 수주 물량 매출 인식에 따른 실적 급증 및 영업이익 흑자 전환 전망\n"
+        f"FC-BGA 반도체 기판 고객사들의 2026~2027년 증설 사이클 본격화에 따른 장비 수요 증가 기대\n"
+        f"2025~2027년 매출 및 영업이익 가파른 성장 전망에 따른 투자심리 개선 및 주가 상승 모멘텀"
     )
 
     client = OpenAI(
@@ -463,12 +469,12 @@ def generate_momentum_text(
     result = _llm_call_with_retry(
         client, model,
         messages=[{"role": "user", "content": prompt}],
-        temperature=0.3, max_tokens=500,
+        temperature=0.3, max_tokens=800,
     )
     if result:
         # Remove any leading "주요 모멘텀:" prefix if LLM included it
         result = re.sub(r'^주요\s*모멘텀\s*[:：]\s*', '', result).strip()
-        # Clean up each line: strip bullet/number prefixes, ensure period ending
+        # Clean up each line: strip bullet/number prefixes
         lines = []
         for line in result.split('\n'):
             line = line.strip()
@@ -478,12 +484,8 @@ def generate_momentum_text(
             line = re.sub(r'^[-•·]\s+', '', line)
             line = re.sub(r'^\d+[.)]\s*', '', line)
             line = line.strip()
-            if not line:
-                continue
-            # Ensure line ends with a period
-            if not line.endswith('.'):
-                line += '.'
-            lines.append(line)
+            if line:
+                lines.append(line)
         result = '\n'.join(lines)
     return result
 

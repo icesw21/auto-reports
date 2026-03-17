@@ -1,0 +1,14 @@
+company:
+  name: 더블유씨피
+  ticker: '393890'
+  tags: []
+report:
+  output_dir: ''
+  years: 5
+  quarters: 8
+  statement_type: 연결
+disclosures:
+  exchange_disclosures_file: C:/OneDrive/stocks/더블유씨피/더블유씨피_exchange_disclosure.json
+analysis:
+  reports_dir: C:/OneDrive/stocks/더블유씨피/reports
+  news_file: C:/OneDrive/stocks/더블유씨피/더블유씨피_news_20260318.json

@@ -1256,7 +1256,7 @@ def run_pipeline(
                         report_fetcher = DartReportFetcher(
                             settings.dart_api_key, fs_pref=fs_pref,
                         )
-                    # Try quarterly HTML fallback too
+                    # Try ongoing FY quarterly first
                     for q in (3, 2, 1):
                         balance_sheet = report_fetcher.get_balance_sheet(
                             corp_code, ongoing_fy, quarter=q,
@@ -1264,11 +1264,21 @@ def run_pipeline(
                         )
                         if balance_sheet.total_assets is not None:
                             break
+                    # Then completed FY annual (사업보고서 takes priority)
                     if balance_sheet.total_assets is None:
                         balance_sheet = report_fetcher.get_balance_sheet(
                             corp_code, completed_fy,
                             settlement_month=sm,
                         )
+                    # Fall back to completed FY quarterly if annual not filed
+                    if balance_sheet.total_assets is None:
+                        for q in (3, 2, 1):
+                            balance_sheet = report_fetcher.get_balance_sheet(
+                                corp_code, completed_fy, quarter=q,
+                                settlement_month=sm,
+                            )
+                            if balance_sheet.total_assets is not None:
+                                break
                     if balance_sheet.total_assets is None:
                         balance_sheet = report_fetcher.get_balance_sheet(
                             corp_code, completed_fy - 1,

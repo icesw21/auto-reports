@@ -1,0 +1,14 @@
+company:
+  name: 파워넷
+  ticker: '037030'
+  tags: []
+report:
+  output_dir: ''
+  years: 5
+  quarters: 8
+  statement_type: 연결
+disclosures:
+  exchange_disclosures_file: C:/OneDrive/stocks/파워넷/파워넷_exchange_disclosure.json
+analysis:
+  reports_dir: C:/OneDrive/stocks/파워넷/reports
+  news_file: C:/OneDrive/stocks/파워넷/파워넷_news_20260318.json

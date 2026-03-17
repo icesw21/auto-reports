@@ -1,0 +1,14 @@
+company:
+  name: 제이엘케이
+  ticker: '322510'
+  tags: []
+report:
+  output_dir: ''
+  years: 5
+  quarters: 8
+  statement_type: 연결
+disclosures:
+  exchange_disclosures_file: C:/OneDrive/stocks/제이엘케이/제이엘케이_exchange_disclosure.json
+analysis:
+  reports_dir: C:/OneDrive/stocks/제이엘케이/reports
+  news_file: C:/OneDrive/stocks/제이엘케이/제이엘케이_news_20260313.json

@@ -1,0 +1,14 @@
+company:
+  name: 케이엔제이
+  ticker: '272110'
+  tags: []
+report:
+  output_dir: ''
+  years: 5
+  quarters: 8
+  statement_type: 연결
+disclosures:
+  exchange_disclosures_file: C:/OneDrive/stocks/케이엔제이/케이엔제이_exchange_disclosure.json
+analysis:
+  reports_dir: C:/OneDrive/stocks/케이엔제이/reports
+  news_file: C:/OneDrive/stocks/케이엔제이/케이엔제이_news_20260318.json

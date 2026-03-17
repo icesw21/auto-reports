@@ -832,10 +832,10 @@ class OpenDartFetcher:
     def get_latest_balance_sheet(
         self, corp_code: str, settlement_month: int = 12,
     ) -> tuple[BalanceSheet, BalanceSheet | None]:
-        """Fetch the latest available balance sheet, trying quarterly first.
+        """Fetch the latest available balance sheet.
 
-        Tries: Q3 → Q2 → Q1 of ongoing FY, then Q3 → Q2 → Q1 of completed FY,
-        then annual of completed FY.
+        Tries: Q3 → Q2 → Q1 of ongoing FY, then annual of completed FY,
+        then Q3 → Q2 → Q1 of completed FY (if annual not yet filed).
         Returns (current_bs, previous_bs_or_None).
 
         Args:
@@ -864,9 +864,18 @@ class OpenDartFetcher:
                 logger.info("Latest BS from FY%d Q%d", ongoing_fy, q)
                 return bs, prev_bs
 
-        # Try quarterly reports for the completed fiscal year (newest first)
-        # e.g. settlement_month=12, today=2026-03: FY2025 Q3 (2025.09) may exist
-        # even though FY2025 annual (사업보고서) hasn't been filed yet.
+        # Try annual of completed fiscal year first (사업보고서 is the most
+        # authoritative; once filed, it should take priority over quarterly).
+        bs = self.get_balance_sheet(corp_code, completed_fy)
+        if bs.total_assets is not None:
+            prev_bs = self.get_balance_sheet(corp_code, completed_fy - 1)
+            if prev_bs.total_assets is None:
+                prev_bs = None
+            logger.info("Latest BS from FY%d annual", completed_fy)
+            return bs, prev_bs
+
+        # Fall back to quarterly of completed FY if annual not yet filed
+        # e.g. settlement_month=12, today=2026-02: FY2025 Q3 (2025.09)
         for q in (3, 2, 1):
             bs = self.get_balance_sheet(corp_code, completed_fy, quarter=q)
             if bs.total_assets is not None:
@@ -875,14 +884,6 @@ class OpenDartFetcher:
                     prev_bs = None
                 logger.info("Latest BS from FY%d Q%d", completed_fy, q)
                 return bs, prev_bs
-
-        # Fall back to annual of completed fiscal year
-        bs = self.get_balance_sheet(corp_code, completed_fy)
-        if bs.total_assets is not None:
-            prev_bs = self.get_balance_sheet(corp_code, completed_fy - 1)
-            if prev_bs.total_assets is None:
-                prev_bs = None
-            return bs, prev_bs
 
         # Try year before completed FY
         bs = self.get_balance_sheet(corp_code, completed_fy - 1)

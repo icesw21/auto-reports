@@ -1,0 +1,14 @@
+company:
+  name: 센서뷰
+  ticker: '321370'
+  tags: []
+report:
+  output_dir: ''
+  years: 5
+  quarters: 8
+  statement_type: 연결
+disclosures:
+  exchange_disclosures_file: C:/OneDrive/stocks/센서뷰/센서뷰_exchange_disclosure.json
+analysis:
+  reports_dir: C:/OneDrive/stocks/센서뷰/reports
+  news_file: C:/OneDrive/stocks/센서뷰/센서뷰_news_20260316.json
