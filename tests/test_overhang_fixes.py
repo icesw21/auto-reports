@@ -8,6 +8,7 @@ from auto_reports.analyzers.overhang import OverhangAnalyzer, _infer_category_fr
 from auto_reports.parsers.exchange_disclosure import _parse_cb_balance
 from auto_reports.parsers.notes_overhang import (
     parse_notes_overhang,
+    _parse_notes_overhang_regex,
     _extract_conv_price_smart,
     _parse_korean_text_number,
     _extract_amount,
@@ -51,7 +52,7 @@ class TestParseBondDirect:
         </table>
         <p>16. 다른항목</p>
         """))
-        results = parse_notes_overhang(html)
+        results = _parse_notes_overhang_regex(html)
         assert len(results) == 1
         r = results[0]
         assert r["category"] == "CB"
@@ -76,7 +77,7 @@ class TestParseBondDirect:
         </table>
         <p>13. 다른항목</p>
         """))
-        results = parse_notes_overhang(html)
+        results = _parse_notes_overhang_regex(html)
         assert len(results) == 2
         assert results[0]["series"] == 1
         assert results[0]["face_value"] == 10_000_000_000
@@ -467,7 +468,7 @@ class TestEmbeddedCBInRCPSSection:
         </table>
         <p>15. 다른항목</p>
         """))
-        results = parse_notes_overhang(html)
+        results = _parse_notes_overhang_regex(html)
         cb_results = [r for r in results if r["category"] == "CB"]
         assert len(cb_results) == 1
         r = cb_results[0]
@@ -538,57 +539,57 @@ class TestCBUnderBorrowingsSection:
 
     def test_finds_three_cbs(self):
         """Should find all 3 CBs from ①②③ subsections under (3) 전환사채."""
-        results = parse_notes_overhang(self.PUNGWON_HTML)
+        results = _parse_notes_overhang_regex(self.PUNGWON_HTML)
         cbs = [r for r in results if r["category"] == "CB"]
         assert len(cbs) == 3
 
     def test_cb_series_numbers(self):
         """Each CB should have correct series number."""
-        results = parse_notes_overhang(self.PUNGWON_HTML)
+        results = _parse_notes_overhang_regex(self.PUNGWON_HTML)
         cbs = sorted([r for r in results if r["category"] == "CB"], key=lambda r: r["series"])
         assert [c["series"] for c in cbs] == [1, 2, 3]
 
     def test_cb1_face_value(self):
         """CB #1 face value should be 15,400,000,000원."""
-        results = parse_notes_overhang(self.PUNGWON_HTML)
+        results = _parse_notes_overhang_regex(self.PUNGWON_HTML)
         cbs = sorted([r for r in results if r["category"] == "CB"], key=lambda r: r["series"])
         assert cbs[0]["face_value"] == 15_400_000_000
 
     def test_cb2_face_value(self):
         """CB #2 face value should be 6,000,000,000원."""
-        results = parse_notes_overhang(self.PUNGWON_HTML)
+        results = _parse_notes_overhang_regex(self.PUNGWON_HTML)
         cbs = sorted([r for r in results if r["category"] == "CB"], key=lambda r: r["series"])
         assert cbs[1]["face_value"] == 6_000_000_000
 
     def test_cb3_face_value(self):
         """CB #3 face value should be 4,000,000,000원."""
-        results = parse_notes_overhang(self.PUNGWON_HTML)
+        results = _parse_notes_overhang_regex(self.PUNGWON_HTML)
         cbs = sorted([r for r in results if r["category"] == "CB"], key=lambda r: r["series"])
         assert cbs[2]["face_value"] == 4_000_000_000
 
     def test_cb1_conversion_price(self):
         """CB #1 conversion price should be 11,398원."""
-        results = parse_notes_overhang(self.PUNGWON_HTML)
+        results = _parse_notes_overhang_regex(self.PUNGWON_HTML)
         cbs = sorted([r for r in results if r["category"] == "CB"], key=lambda r: r["series"])
         assert cbs[0]["conversion_price"] == 11_398
 
     def test_cb1_exercise_period(self):
         """CB #1 exercise period should be 2022.09.11 ~ 2027.09.10."""
-        results = parse_notes_overhang(self.PUNGWON_HTML)
+        results = _parse_notes_overhang_regex(self.PUNGWON_HTML)
         cbs = sorted([r for r in results if r["category"] == "CB"], key=lambda r: r["series"])
         assert cbs[0]["exercise_start"] == "2022.09.11"
         assert cbs[0]["exercise_end"] == "2027.09.10"
 
     def test_cb3_exercise_period(self):
         """CB #3 exercise period should be 2026.05.16 ~ 2030.04.16."""
-        results = parse_notes_overhang(self.PUNGWON_HTML)
+        results = _parse_notes_overhang_regex(self.PUNGWON_HTML)
         cbs = sorted([r for r in results if r["category"] == "CB"], key=lambda r: r["series"])
         assert cbs[2]["exercise_start"] == "2026.05.16"
         assert cbs[2]["exercise_end"] == "2030.04.16"
 
     def test_all_cbs_active(self):
         """All CBs should be active."""
-        results = parse_notes_overhang(self.PUNGWON_HTML)
+        results = _parse_notes_overhang_regex(self.PUNGWON_HTML)
         cbs = [r for r in results if r["category"] == "CB"]
         assert all(c["active"] for c in cbs)
 
@@ -601,43 +602,43 @@ class TestPreferredStockDirectTable:
 
     def test_finds_preferred_stock(self):
         """Should find 1 preferred stock from (4) 전환우선주부채."""
-        results = parse_notes_overhang(TestCBUnderBorrowingsSection.PUNGWON_HTML)
+        results = _parse_notes_overhang_regex(TestCBUnderBorrowingsSection.PUNGWON_HTML)
         rcps = [r for r in results if r["category"] == "전환우선주"]
         assert len(rcps) == 1
 
     def test_preferred_face_value(self):
         """Preferred stock face value should be ~1,000,000,310원."""
-        results = parse_notes_overhang(TestCBUnderBorrowingsSection.PUNGWON_HTML)
+        results = _parse_notes_overhang_regex(TestCBUnderBorrowingsSection.PUNGWON_HTML)
         rcps = [r for r in results if r["category"] == "전환우선주"]
         assert rcps[0]["face_value"] == 1_000_000_310
 
     def test_preferred_shares(self):
         """Preferred stock convertible shares should be 86,881."""
-        results = parse_notes_overhang(TestCBUnderBorrowingsSection.PUNGWON_HTML)
+        results = _parse_notes_overhang_regex(TestCBUnderBorrowingsSection.PUNGWON_HTML)
         rcps = [r for r in results if r["category"] == "전환우선주"]
         assert rcps[0]["convertible_shares"] == 86_881
 
     def test_preferred_conversion_price(self):
         """Preferred stock conversion price should be 11,510원 (1:1 ratio)."""
-        results = parse_notes_overhang(TestCBUnderBorrowingsSection.PUNGWON_HTML)
+        results = _parse_notes_overhang_regex(TestCBUnderBorrowingsSection.PUNGWON_HTML)
         rcps = [r for r in results if r["category"] == "전환우선주"]
         assert rcps[0]["conversion_price"] == 11_510
 
     def test_preferred_exercise_period(self):
         """Preferred stock: 1 year after 2025.04.16 ~ 10 years after."""
-        results = parse_notes_overhang(TestCBUnderBorrowingsSection.PUNGWON_HTML)
+        results = _parse_notes_overhang_regex(TestCBUnderBorrowingsSection.PUNGWON_HTML)
         rcps = [r for r in results if r["category"] == "전환우선주"]
         assert rcps[0]["exercise_start"] == "2026.04.16"
         assert rcps[0]["exercise_end"] == "2035.04.16"
 
     def test_preferred_active(self):
         """Preferred stock should be active."""
-        results = parse_notes_overhang(TestCBUnderBorrowingsSection.PUNGWON_HTML)
+        results = _parse_notes_overhang_regex(TestCBUnderBorrowingsSection.PUNGWON_HTML)
         rcps = [r for r in results if r["category"] == "전환우선주"]
         assert rcps[0]["active"] is True
 
     def test_no_loan_data_in_results(self):
         """Loan tables should not appear in overhang results."""
-        results = parse_notes_overhang(TestCBUnderBorrowingsSection.PUNGWON_HTML)
+        results = _parse_notes_overhang_regex(TestCBUnderBorrowingsSection.PUNGWON_HTML)
         categories = {r["category"] for r in results}
         assert categories == {"CB", "전환우선주"}

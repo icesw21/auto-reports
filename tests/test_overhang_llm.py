@@ -697,14 +697,13 @@ class TestParseNotesOverhangWithLlm:
         <p>14. 기타</p>
         </body></html>"""
 
-    def test_without_api_key_uses_regex(self):
-        """Without api_key, should use regex-based parsing."""
+    def test_without_api_key_returns_empty(self):
+        """Without api_key, LLM-only mode returns empty list."""
         from auto_reports.parsers.notes_overhang import parse_notes_overhang
 
         results = parse_notes_overhang(self._make_html())
-        # Regex parser should find the CB
-        assert len(results) >= 1
-        assert results[0]["category"] == "CB"
+        # LLM-only mode: no api_key → empty list (regex fallback removed)
+        assert results == []
 
     @patch("auto_reports.parsers.notes_overhang_llm.OpenAI")
     def test_with_api_key_tries_llm_first(self, mock_openai_cls):
@@ -743,8 +742,8 @@ class TestParseNotesOverhangWithLlm:
         assert "LLM" in results[0]["kind"]
 
     @patch("auto_reports.parsers.notes_overhang_llm.OpenAI")
-    def test_llm_failure_falls_back_to_regex(self, mock_openai_cls):
-        """When LLM fails, should fall back to regex parsing."""
+    def test_llm_failure_returns_empty(self, mock_openai_cls):
+        """When LLM fails, LLM-only mode returns empty (no regex fallback)."""
         from auto_reports.parsers.notes_overhang import parse_notes_overhang
 
         mock_client = MagicMock()
@@ -755,13 +754,12 @@ class TestParseNotesOverhangWithLlm:
             self._make_html(), api_key="test-key",
         )
 
-        # Should still get results from regex fallback
-        assert len(results) >= 1
-        assert results[0]["category"] == "CB"
+        # LLM-only mode: no regex fallback, returns empty
+        assert results == []
 
     @patch("auto_reports.parsers.notes_overhang_llm.OpenAI")
-    def test_llm_empty_result_falls_back_to_regex(self, mock_openai_cls):
-        """When LLM returns empty, should fall back to regex parsing."""
+    def test_llm_empty_result_returns_empty(self, mock_openai_cls):
+        """When LLM returns empty instruments, LLM-only mode returns empty."""
         from auto_reports.parsers.notes_overhang import parse_notes_overhang
 
         llm_response = json.dumps({"instruments": []})
@@ -779,6 +777,5 @@ class TestParseNotesOverhangWithLlm:
             self._make_html(), api_key="test-key",
         )
 
-        # Should fall back to regex and still find the CB
-        assert len(results) >= 1
-        assert results[0]["category"] == "CB"
+        # LLM-only mode: no regex fallback
+        assert results == []
