@@ -109,6 +109,7 @@ class ReportData(BaseModel):
     major_suppliers: str = ""
     revenue_breakdown: str = ""
     order_backlog: str = ""
+    order_backlog_table: str = ""  # 수주잔고 시계열 테이블 (markdown)
     exchange_contracts: list[ExchangeContract] = Field(default_factory=list)
     exchange_forecasts: list[dict] = Field(default_factory=list)  # 실적전망 공정공시
     business_source: str = ""  # e.g. "사업보고서 (2024.12) 기준"

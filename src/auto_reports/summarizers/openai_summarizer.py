@@ -129,6 +129,387 @@ def _strip_revenue_summary(text: str) -> str:
     return '\n'.join(lines[:summary_start] + lines[section_end:])
 
 
+def _fix_revenue_breakdown_scale(
+    table_text: str,
+    known_revenue_won: int | None,
+    display_unit: str = "억원",
+) -> str:
+    """Auto-correct revenue breakdown table if amounts are off by a power of 10.
+
+    Parses the markdown table, sums the amounts from non-합계/총계 rows,
+    compares against known_revenue_won, and rescales if the ratio is close
+    to a power of 10 (e.g. 10x, 100x).
+    """
+    if not known_revenue_won or not table_text:
+        return table_text
+
+    # Convert known revenue to display unit
+    if display_unit == "억원":
+        known_display = known_revenue_won / 1_0000_0000
+    else:
+        known_display = known_revenue_won / 1_000_000
+
+    if known_display <= 0:
+        return table_text
+
+    # Parse amounts from table rows (excluding 합계/총계 rows)
+    amount_pattern = re.compile(r"^\|[^|]+\|[^|]+\|\s*([\d,]+)\s*\|")
+    total_pattern = re.compile(r"합계|총계")
+    amounts: list[int] = []
+    for line in table_text.split("\n"):
+        if total_pattern.search(line):
+            continue
+        m = amount_pattern.match(line.strip())
+        if m:
+            try:
+                amounts.append(int(m.group(1).replace(",", "")))
+            except ValueError:
+                continue
+
+    if not amounts:
+        return table_text
+
+    table_sum = sum(amounts)
+    if table_sum <= 0:
+        return table_text
+
+    ratio = table_sum / known_display
+    # Find nearest power of 10
+    for factor in (10, 100, 1000):
+        if 0.7 * factor <= ratio <= 1.5 * factor:
+            logger.info(
+                "Revenue breakdown scale fix: table_sum=%d, known=%d, factor=%dx",
+                table_sum, int(known_display), factor,
+            )
+            # Rescale all numeric amounts in the table
+            def _rescale(match: re.Match) -> str:
+                raw = match.group(0)
+                try:
+                    val = int(raw.replace(",", ""))
+                    corrected = round(val / factor)
+                    return f"{corrected:,}" if corrected >= 1000 else str(corrected)
+                except ValueError:
+                    return raw
+
+            # Replace amounts in the amount column (3rd column)
+            fixed_lines = []
+            for line in table_text.split("\n"):
+                if line.startswith("|") and not line.startswith("|--") and not line.startswith("| --"):
+                    parts = line.split("|")
+                    if len(parts) >= 4:
+                        # parts[0]='', parts[1]=col1, parts[2]=col2, parts[3]=amount, parts[4]=pct
+                        amount_cell = parts[3]
+                        parts[3] = re.sub(r"[\d,]+", _rescale, amount_cell, count=1)
+                        line = "|".join(parts)
+                fixed_lines.append(line)
+            return "\n".join(fixed_lines)
+
+    return table_text
+
+
+def extract_order_backlog_timeseries(
+    backlog_history: list[tuple[str, str, str]],
+    api_key: str,
+    model: str = "",
+    base_url: str = "",
+    currency: str = "KRW",
+) -> str:
+    """Extract structured order backlog data from multiple periodic reports
+    and build a time-series markdown table.
+
+    Args:
+        backlog_history: List of (ref_date_YYYYMMDD, report_name, raw_text).
+        api_key: LLM API key.
+        model: LLM model name.
+        base_url: LLM base URL.
+        currency: Currency code for display unit.
+
+    Returns:
+        Markdown table string, or empty string on failure.
+    """
+    import json as _json
+
+    if not backlog_history or not api_key:
+        return ""
+
+    if not model:
+        model = "gpt-4.1-mini"
+
+    display_unit = "억원" if currency == "KRW" else f"백만 {currency}"
+    client = OpenAI(
+        api_key=api_key, max_retries=3,
+        **({"base_url": base_url} if base_url else {}),
+    )
+
+    # Step 1: Extract structured backlog data from each report
+    snapshots: list[dict] = []  # [{period, segments: {name: amount}}]
+
+    for ref_date, report_name, raw_text in backlog_history:
+        # Convert YYYYMMDD to period label (e.g. "2025.Q3")
+        period_label = _ref_date_to_period(ref_date)
+        if not period_label:
+            continue
+
+        # Extract the order backlog subsection ("다. 수주" or similar)
+        # to avoid truncating it away when the full section is long.
+        text = _extract_backlog_subsection(raw_text)
+
+        # Detect unit from the subsection itself (not full text, which may
+        # have a different unit for the revenue section)
+        source_unit = _detect_revenue_unit(text)
+        conv_rule = _build_conv_rule(source_unit, display_unit)
+
+        prompt = (
+            f"다음은 정기보고서의 수주 현황 섹션입니다.\n\n"
+            f"{text}\n\n"
+            f"위 내용에서 **수주잔고** (기말잔고/기말잔량) 금액 데이터만 추출해주세요.\n\n"
+            f"### 규칙\n"
+            f"- 금액만 추출 (수량은 무시)\n"
+            f"- 사업부문/품목별로 구분하여 추출\n"
+            f"- {conv_rule}\n"
+            f"- 합계/총계 행은 제외 (개별 사업부문만)\n"
+            f"- 수주잔고 데이터가 없으면 빈 JSON 반환\n\n"
+            f"### 응답 형식 (JSON만, 다른 텍스트 없이)\n"
+            f'{{"segments": {{"사업부문A": 금액, "사업부문B": 금액}}}}\n\n'
+            f"예시: {json_example(display_unit)}"
+        )
+
+        get_llm_limiter().wait()
+        try:
+            response = client.chat.completions.create(
+                model=model,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.1,
+                max_tokens=500,
+            )
+            content = (response.choices[0].message.content or "").strip()
+            # Extract JSON from response (may have markdown fences)
+            content = re.sub(r"^```(?:json)?\s*", "", content)
+            content = re.sub(r"\s*```$", "", content)
+            data = _json.loads(content)
+            segments = data.get("segments", {})
+            if segments:
+                # Ensure all values are numeric
+                clean_segments = {}
+                for k, v in segments.items():
+                    try:
+                        clean_segments[k] = round(float(v))
+                    except (ValueError, TypeError):
+                        continue
+                if clean_segments:
+                    snapshots.append({"period": period_label, "segments": clean_segments})
+                    logger.info("Backlog extracted: %s -> %s", period_label, clean_segments)
+        except Exception as e:
+            logger.warning("Backlog extraction failed for %s: %s", period_label, e)
+            continue
+
+    if not snapshots:
+        return ""
+
+    # Step 2: Build the time-series table (fetch 3 years for YoY, display 2 years)
+    return _build_backlog_table(snapshots, display_unit, display_quarters=8)
+
+
+def _extract_backlog_subsection(text: str) -> str:
+    """Extract the order backlog subsection from '매출 및 수주상황' text.
+
+    Looks for '다. 수주' or '수주상황' subsection header and returns
+    the text from that point onward (up to 4000 chars).
+    Falls back to the last 4000 chars if no header found.
+    """
+    # Primary patterns — section headers that include unit declaration
+    for pattern in [
+        r"다\.\s*수주",          # "다. 수주상황" or "다. 수주 상황"
+        r"다\)\s*수주",          # "다) 수주상황"
+        r"[Cc]\.\s*수주",       # "C. 수주상황"
+    ]:
+        m = re.search(pattern, text)
+        if m:
+            return text[m.start():][:4000]
+
+    # Fallback patterns — table column headers like "수주잔고".
+    # Include 500 chars of preceding context to capture the unit declaration
+    # (e.g., "(단위 : 억원)") which typically appears before the table.
+    for pattern in [r"수주잔[고량]"]:
+        m = re.search(pattern, text)
+        if m:
+            start = max(0, m.start() - 500)
+            return text[start:][:4500]
+
+    # Last resort: use the last 4000 chars
+    if len(text) > 4000:
+        return text[-4000:]
+    return text
+
+
+def json_example(unit: str) -> str:
+    return f'{{"segments": {{"반도체장비": 150, "디스플레이": 80}}}} (단위: {unit})'
+
+
+def _ref_date_to_period(ref_date: str) -> str:
+    """Convert YYYYMMDD to period label like '2025.Q3' or '2025'."""
+    if len(ref_date) != 8:
+        return ""
+    year = ref_date[:4]
+    month = int(ref_date[4:6])
+    quarter_map = {3: "Q1", 6: "Q2", 9: "Q3", 12: "Q4"}
+    # Find nearest quarter end
+    for end_month, q_label in quarter_map.items():
+        if month <= end_month:
+            return f"{year}.{q_label}"
+    return f"{year}.Q4"
+
+
+def _normalize_segment_name(name: str) -> str:
+    """Normalize segment name for fuzzy matching.
+
+    Strips all whitespace so '방사선 관리 용역' == '방사선관리 용역'.
+    """
+    return re.sub(r"\s+", "", name)
+
+
+def _unify_segment_names(snapshots: list[dict]) -> list[dict]:
+    """Merge segment names that differ only by whitespace.
+
+    Uses the first-seen form as the canonical name.
+    Returns new snapshots with unified segment names.
+    """
+    # Build canonical name mapping: normalized -> first-seen display name
+    canonical: dict[str, str] = {}
+    for snap in snapshots:
+        for name in snap["segments"]:
+            norm = _normalize_segment_name(name)
+            if norm not in canonical:
+                canonical[norm] = name
+
+    # Rewrite each snapshot's segments using canonical names
+    unified: list[dict] = []
+    for snap in snapshots:
+        new_segments: dict[str, int] = {}
+        for name, val in snap["segments"].items():
+            norm = _normalize_segment_name(name)
+            canon_name = canonical[norm]
+            # Sum if same normalized name appears multiple times
+            new_segments[canon_name] = new_segments.get(canon_name, 0) + val
+        unified.append({"period": snap["period"], "segments": new_segments})
+    return unified
+
+
+def _build_backlog_table(
+    snapshots: list[dict],
+    display_unit: str,
+    display_quarters: int = 8,
+) -> str:
+    """Build a markdown time-series table from backlog snapshots.
+
+    Each snapshot: {period: "2025.Q3", segments: {"부문A": 100, "부문B": 200}}
+    All snapshots are used for YoY calculation, but only the most recent
+    `display_quarters` are shown in the table.
+    """
+    if not snapshots:
+        return ""
+
+    # Unify segment names (fuzzy match: strip whitespace)
+    snapshots = _unify_segment_names(snapshots)
+
+    # Sort snapshots by period descending
+    snapshots.sort(key=lambda s: s["period"], reverse=True)
+
+    # Build period -> total map for YoY lookup (ALL snapshots)
+    period_totals: dict[str, int] = {}
+    period_segments: dict[str, dict[str, int]] = {}
+    for snap in snapshots:
+        total = sum(snap["segments"].values())
+        period_totals[snap["period"]] = total
+        period_segments[snap["period"]] = snap["segments"]
+
+    # Only display the most recent N quarters
+    display_snapshots = snapshots[:display_quarters]
+
+    # Build rows: 분기 | 합계 (YoY%) | 비고 (segment breakdown)
+    headers = ["분기", f"합계({display_unit})", "비고"]
+    separator = ["---", "---", "---"]
+
+    rows: list[list[str]] = []
+    for snap in display_snapshots:
+        period = snap["period"]
+        total = period_totals[period]
+
+        # YoY for total
+        yoy_period = _get_yoy_period(period)
+        yoy_str = ""
+        if yoy_period and yoy_period in period_totals:
+            prev_total = period_totals[yoy_period]
+            if prev_total > 0:
+                pct = (total - prev_total) / prev_total * 100
+                sign = "+" if pct >= 0 else ""
+                yoy_str = f" ({sign}{pct:.0f}%)"
+
+        total_cell = f"{total:,}{yoy_str}"
+
+        # Notes: segment breakdown
+        segments = snap["segments"]
+        notes_parts = [f"{name} {val:,}" for name, val in segments.items()]
+        notes_cell = " / ".join(notes_parts)
+
+        rows.append([f"**{period}**", total_cell, notes_cell])
+
+    # Render markdown
+    lines = [
+        "| " + " | ".join(headers) + " |",
+        "| " + " | ".join(separator) + " |",
+    ]
+    for row in rows:
+        lines.append("| " + " | ".join(row) + " |")
+
+    return "\n".join(lines)
+
+
+def _calc_yoy(
+    period: str, seg_name: str, current_val: int,
+    period_data: dict[str, dict[str, int]],
+) -> str | None:
+    """Calculate YoY % for a segment. Returns formatted string or None."""
+    yoy_period = _get_yoy_period(period)
+    if not yoy_period or yoy_period not in period_data:
+        return None
+    prev_val = period_data[yoy_period].get(seg_name)
+    if prev_val is None or prev_val == 0:
+        return None
+    pct = (current_val - prev_val) / prev_val * 100
+    sign = "+" if pct >= 0 else ""
+    return f"{sign}{pct:.0f}%"
+
+
+def _calc_yoy_total(
+    period: str, all_segments: list[str],
+    period_data: dict[str, dict[str, int]],
+) -> str | None:
+    """Calculate YoY % for total across all segments."""
+    yoy_period = _get_yoy_period(period)
+    if not yoy_period or yoy_period not in period_data:
+        return None
+    current_total = sum(period_data[period].get(s, 0) for s in all_segments)
+    prev_total = sum(period_data[yoy_period].get(s, 0) for s in all_segments)
+    if prev_total == 0:
+        return None
+    pct = (current_total - prev_total) / prev_total * 100
+    sign = "+" if pct >= 0 else ""
+    return f"{sign}{pct:.0f}%"
+
+
+def _get_yoy_period(period: str) -> str:
+    """Get same quarter of previous year. e.g. '2025.Q3' -> '2024.Q3'."""
+    if ".Q" in period:
+        parts = period.split(".Q")
+        try:
+            year = int(parts[0])
+            return f"{year - 1}.Q{parts[1]}"
+        except (ValueError, IndexError):
+            return ""
+    return ""
+
+
 def _system_prompt(display_unit: str = "억원") -> str:
     """Generate system prompt with the correct display unit."""
     return f"""\
@@ -163,6 +544,7 @@ def summarize_business_sections(
     model: str = "",
     base_url: str = "",
     currency: str = "KRW",
+    known_revenue_won: int | None = None,
 ) -> BusinessSummary:
     """Summarize business sections using OpenAI.
 
@@ -273,7 +655,10 @@ def summarize_business_sections(
         # Parse the structured response
         sections = _parse_structured_response(result)
         summary.major_customers = sections.get("주요매출처", "")
-        summary.revenue_breakdown = sections.get("부문별매출", "")
+        raw_breakdown = sections.get("부문별매출", "")
+        summary.revenue_breakdown = _fix_revenue_breakdown_scale(
+            raw_breakdown, known_revenue_won, _display_unit,
+        )
         summary.order_backlog = sections.get("수주잔고", "")
 
     return summary

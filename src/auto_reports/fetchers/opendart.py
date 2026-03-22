@@ -63,6 +63,12 @@ _IS_FIELD_NAMES: dict[str, list[str]] = {
         "당기순이익(손실)",
         "당기순손실(이익)",
         "당기순손실",
+        "당(반)기순이익",
+        "당(반)기순이익(손실)",
+        "당(반)기순손실(이익)",
+        "당(분)기순이익",
+        "당(분)기순이익(손실)",
+        "당(분)기순손실(이익)",
         "반기순이익",
         "반기순이익(손실)",
         "반기순손실(이익)",
@@ -313,6 +319,57 @@ class OpenDartFetcher:
 
         return None
 
+    def _find_amount_sum(
+        self, df: Any, sj_div: str, field_names: list[str], amount_col: str,
+    ) -> int | None:
+        """Find and SUM all matching amounts (not just first match).
+
+        Used for bare "차입금" which may appear as separate rows for
+        유동 and 비유동 liabilities with the same account name.
+        """
+        if "sj_div" in df.columns:
+            filtered = df[df["sj_div"] == sj_div]
+        else:
+            filtered = df
+
+        if not _is_valid_df(filtered):
+            return None
+
+        account_col = (
+            "account_nm" if "account_nm" in filtered.columns
+            else self._detect_account_col(filtered)
+        )
+
+        total = 0
+        found = False
+        for name in field_names:
+            # Exact match — sum all rows
+            mask = filtered[account_col] == name
+            if mask.any():
+                for _, row in filtered[mask].iterrows():
+                    val = _parse_amount(row[amount_col])
+                    if val is not None:
+                        total += val
+                        found = True
+                continue
+            # Substring match with exclusions — sum all rows
+            mask = filtered[account_col].str.contains(name, na=False, regex=False)
+            if mask.any():
+                exclusions = _BS_SUBSTRING_EXCLUSIONS.get(name, [])
+                if exclusions:
+                    for excl in exclusions:
+                        mask = mask & ~filtered[account_col].str.contains(
+                            excl, na=False, regex=False,
+                        )
+                if mask.any():
+                    for _, row in filtered[mask].iterrows():
+                        val = _parse_amount(row[amount_col])
+                        if val is not None:
+                            total += val
+                            found = True
+
+        return total if found else None
+
     # ------------------------------------------------------------------
     # Corp code resolution
     # ------------------------------------------------------------------
@@ -379,6 +436,12 @@ class OpenDartFetcher:
             val = self._find_amount(df, "BS", names, amount_col)
             if val is not None:
                 setattr(bs, field, val)
+
+        # Sum all bare "차입금" rows (유동+비유동) for companies that only
+        # report "차입금" without 단기/장기 prefix.
+        borrowings_sum = self._find_amount_sum(df, "BS", ["차입금"], amount_col)
+        if borrowings_sum is not None:
+            bs.borrowings_total = borrowings_sum
 
         return bs
 

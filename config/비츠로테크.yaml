@@ -1,0 +1,14 @@
+company:
+  name: 비츠로테크
+  ticker: '042370'
+  tags: []
+report:
+  output_dir: ''
+  years: 5
+  quarters: 8
+  statement_type: 연결
+disclosures:
+  exchange_disclosures_file: C:/OneDrive/stocks/비츠로테크/비츠로테크_exchange_disclosure.json
+analysis:
+  reports_dir: C:/OneDrive/stocks/비츠로테크/reports
+  news_file: C:/OneDrive/stocks/비츠로테크/비츠로테크_news_20260321.json

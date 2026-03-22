@@ -32,7 +32,7 @@ links:
 | 고점 | {{ data.price_high }} |
 | {{ data.price_return_label }} | {{ data.price_return_1y }} |
 {%- if data.momentum_text %}
-> **주요 모멘텀**:
+> [!abstract]+ 주요 모멘텀
 {%- for line in data.momentum_text.split('\n') if line.strip() %}
 > - {{ line.strip() }}
 {%- endfor %}
@@ -151,7 +151,14 @@ _전제: {{ fc.assumptions }}_
 {{ data.revenue_breakdown }}
 {%- endif %}
 - **수주잔고 현황**:
-{{ data.order_backlog | indent(4, first=true) if data.order_backlog else '    해당사항 없음' }}
+{%- if data.order_backlog_table %}
+
+{{ data.order_backlog_table }}
+{%- elif data.order_backlog %}
+{{ data.order_backlog | indent(4, first=true) }}
+{%- else %}
+    해당사항 없음
+{%- endif %}
 {%- if data.exchange_contracts %}
 
 > [!note] 최근 공시된 계약 변동

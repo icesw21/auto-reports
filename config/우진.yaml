@@ -1,0 +1,14 @@
+company:
+  name: 우진
+  ticker: '105840'
+  tags: []
+report:
+  output_dir: ''
+  years: 5
+  quarters: 8
+  statement_type: 연결
+disclosures:
+  exchange_disclosures_file: C:/OneDrive/stocks/우진/우진_exchange_disclosure.json
+analysis:
+  reports_dir: C:/OneDrive/stocks/우진/reports
+  news_file: C:/OneDrive/stocks/우진/우진_news_20260321.json

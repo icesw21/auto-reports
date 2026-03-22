@@ -1,0 +1,14 @@
+company:
+  name: DN오토모티브
+  ticker: '007340'
+  tags: []
+report:
+  output_dir: ''
+  years: 5
+  quarters: 8
+  statement_type: 연결
+disclosures:
+  exchange_disclosures_file: C:/OneDrive/stocks/DN오토모티브/DN오토모티브_exchange_disclosure.json
+analysis:
+  reports_dir: C:/OneDrive/stocks/DN오토모티브/reports
+  news_file: C:/OneDrive/stocks/DN오토모티브/DN오토모티브_news_20260319.json

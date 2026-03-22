@@ -31,6 +31,7 @@ class BalanceSheet(BaseModel):
     bonds: Optional[int] = None  # 사채
     short_term_debt_and_bonds: Optional[int] = None  # 단기차입금및사채 (통합)
     long_term_debt_and_bonds: Optional[int] = None  # 장기차입금및사채 (통합)
+    borrowings_total: Optional[int] = None  # 차입금 합계 (유동+비유동 bare "차입금" 합산)
     total_equity: Optional[int] = None
 
 

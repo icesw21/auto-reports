@@ -1,0 +1,14 @@
+company:
+  name: 하이텍팜
+  ticker: '106190'
+  tags: []
+report:
+  output_dir: ''
+  years: 5
+  quarters: 8
+  statement_type: 연결
+disclosures:
+  exchange_disclosures_file: C:/OneDrive/stocks/하이텍팜/하이텍팜_exchange_disclosure.json
+analysis:
+  reports_dir: C:/OneDrive/stocks/하이텍팜/reports
+  news_file: C:/OneDrive/stocks/하이텍팜/하이텍팜_news_20260321.json

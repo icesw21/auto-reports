@@ -1350,6 +1350,14 @@ def run_pipeline(
                     summarize_business_sections,
                 )
 
+                # Get latest annual revenue for cross-checking segment totals
+                _known_revenue = None
+                if annual_statements:
+                    for _stmt in reversed(annual_statements):
+                        if _stmt.revenue is not None:
+                            _known_revenue = _stmt.revenue
+                            break
+
                 business_summary = summarize_business_sections(
                     사업개요=biz_sections.사업개요,
                     주요제품=biz_sections.주요제품,
@@ -1359,6 +1367,7 @@ def run_pipeline(
                     model=settings.llm_model,
                     base_url=settings.llm_base_url,
                     currency=balance_sheet.currency if balance_sheet else "KRW",
+                    known_revenue_won=_known_revenue,
                 )
                 business_summary.report_source = f"{biz_sections.report_title} 기준"
                 console.print("  [green]Business section summarized[/green]")
@@ -1367,6 +1376,32 @@ def run_pipeline(
         except Exception as e:
             logger.warning("Business section fetch/summarize failed: %s", e)
             console.print(f"  [yellow]Business section failed: {e}[/yellow]")
+
+    # ─── Phase 2.6: Order backlog time-series ───
+    order_backlog_table = ""
+    if settings.dart_api_key and settings.llm_api_key and corp_code:
+        console.print("\n[dim]Fetching order backlog history...[/dim]")
+        try:
+            backlog_history = biz_fetcher.fetch_order_backlog_history(corp_code, max_reports=12)
+            if backlog_history:
+                console.print(f"  [dim]{len(backlog_history)} reports found[/dim]")
+                from auto_reports.summarizers.openai_summarizer import (
+                    extract_order_backlog_timeseries,
+                )
+                order_backlog_table = extract_order_backlog_timeseries(
+                    backlog_history,
+                    api_key=settings.llm_api_key,
+                    model=settings.llm_model,
+                    base_url=settings.llm_base_url,
+                    currency=balance_sheet.currency if balance_sheet else "KRW",
+                )
+                if order_backlog_table:
+                    console.print("  [green]Order backlog table generated[/green]")
+                else:
+                    console.print("  [yellow]No order backlog data found[/yellow]")
+        except Exception as e:
+            logger.warning("Order backlog history failed: %s", e)
+            console.print(f"  [yellow]Order backlog history failed: {e}[/yellow]")
 
     # ─── Phase 3: Analyze overhang (3 sub-phases) ───
     console.print("\n[dim]Analyzing overhang...[/dim]")
@@ -1970,6 +2005,7 @@ def run_pipeline(
         major_suppliers=business_summary.major_suppliers if business_summary else "",
         revenue_breakdown=business_summary.revenue_breakdown if business_summary else "",
         order_backlog=business_summary.order_backlog if business_summary else "",
+        order_backlog_table=order_backlog_table,
         exchange_contracts=exchange_contracts,
         exchange_forecasts=exchange_forecasts,
         business_source=business_summary.report_source if business_summary else "",

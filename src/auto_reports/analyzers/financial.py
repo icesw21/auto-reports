@@ -121,6 +121,7 @@ def build_balance_sheet_rows(
     # 이자부부채: 유동/비유동 각각 통합 계정이 있으면 우선 사용
     # 통합: 단기차입금및사채 / 유동 차입금  |  장기차입금및사채
     # 개별: 단기차입금 + 유동성장기부채 + 유동성사채  |  장기차입금 + 사채
+    # Fallback: borrowings_total (bare "차입금" 합산)
     def _calc_debt(sheet: BalanceSheet) -> Optional[int]:
         if sheet.short_term_debt_and_bonds is not None:
             short = sheet.short_term_debt_and_bonds
@@ -133,7 +134,12 @@ def build_balance_sheet_rows(
             long = sheet.long_term_debt_and_bonds
         else:
             long = _sum_optional(sheet.long_term_borrowings, sheet.bonds)
-        return _sum_optional(short, long)
+        result = _sum_optional(short, long)
+        # Fallback: use borrowings_total (bare "차입금" 합산) when
+        # individual debt fields are all empty
+        if result is None and sheet.borrowings_total is not None:
+            result = sheet.borrowings_total
+        return result
 
     debt_total = _calc_debt(bs)
     prev_debt_total = _calc_debt(prev) if prev else None

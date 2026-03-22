@@ -1,0 +1,14 @@
+company:
+  name: 삼화콘덴서
+  ticker: 001820
+  tags: []
+report:
+  output_dir: ''
+  years: 5
+  quarters: 8
+  statement_type: 연결
+disclosures:
+  exchange_disclosures_file: C:/OneDrive/stocks/삼화콘덴서/삼화콘덴서_exchange_disclosure.json
+analysis:
+  reports_dir: C:/OneDrive/stocks/삼화콘덴서/reports
+  news_file: C:/OneDrive/stocks/삼화콘덴서/삼화콘덴서_news_20260318.json

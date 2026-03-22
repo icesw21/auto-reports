@@ -1,0 +1,15 @@
+company:
+  name: 한스바이오메드
+  ticker: '042520'
+  tags: []
+  settlement_month: 9
+report:
+  output_dir: ''
+  years: 5
+  quarters: 8
+  statement_type: 연결
+disclosures:
+  exchange_disclosures_file: C:/OneDrive/stocks/한스바이오메드/한스바이오메드_exchange_disclosure.json
+analysis:
+  reports_dir: C:/OneDrive/stocks/한스바이오메드/reports
+  news_file: C:/OneDrive/stocks/한스바이오메드/한스바이오메드_news_20260318.json

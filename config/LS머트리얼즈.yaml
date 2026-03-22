@@ -1,0 +1,14 @@
+company:
+  name: LS머트리얼즈
+  ticker: '417200'
+  tags: []
+report:
+  output_dir: ''
+  years: 5
+  quarters: 8
+  statement_type: 연결
+disclosures:
+  exchange_disclosures_file: C:/OneDrive/stocks/LS머트리얼즈/LS머트리얼즈_exchange_disclosure.json
+analysis:
+  reports_dir: C:/OneDrive/stocks/LS머트리얼즈/reports
+  news_file: C:/OneDrive/stocks/LS머트리얼즈/LS머트리얼즈_news_20260321.json

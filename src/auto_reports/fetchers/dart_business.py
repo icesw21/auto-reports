@@ -45,6 +45,99 @@ class DartBusinessFetcher:
         self.dart = OpenDartReader(api_key)
         self.delay = delay
 
+    def _find_periodic_reports(
+        self, corp: str, max_reports: int = 8,
+    ) -> list[tuple[str, str]]:
+        """Find the most recent periodic reports.
+
+        Returns list of (rcept_no, report_name) sorted by filing date descending,
+        up to max_reports entries.
+        """
+        from datetime import date
+
+        today = date.today()
+        start = f"{today.year - 3}0101"
+        end = today.strftime("%Y%m%d")
+
+        try:
+            df = dart_call_with_retry(self.dart.list, corp, start=start, end=end, kind="A")
+        except Exception:
+            logger.exception("dart.list failed for %s", corp)
+            return []
+
+        if df is None or df.empty:
+            return []
+
+        if "rcept_dt" in df.columns:
+            df = df.sort_values("rcept_dt", ascending=False)
+
+        report_keywords = "사업보고서|반기보고서|분기보고서"
+        mask = df["report_nm"].str.contains(report_keywords, na=False, regex=True)
+        filtered = df[mask]
+
+        if filtered.empty:
+            return []
+
+        results: list[tuple[str, str]] = []
+        for _, row in filtered.head(max_reports).iterrows():
+            results.append((str(row["rcept_no"]), str(row["report_nm"])))
+
+        return results
+
+    def fetch_order_backlog_history(
+        self, corp: str, max_reports: int = 8,
+    ) -> list[tuple[str, str, str]]:
+        """Fetch order backlog (수주잔고) text from multiple periodic reports.
+
+        Returns list of (period_label, report_name, raw_text) sorted newest-first.
+        period_label is YYYYMMDD format (e.g. "20250930").
+        """
+        from auto_reports.fetchers.opendart import _parse_reference_date
+
+        reports = self._find_periodic_reports(corp, max_reports)
+        if not reports:
+            logger.warning("No periodic reports found for order backlog: %s", corp)
+            return []
+
+        section_norm = _WHITESPACE_RE.sub("", "4. 매출 및 수주상황")
+        results: list[tuple[str, str, str]] = []
+
+        for rcept_no, report_name in reports:
+            ref_date = _parse_reference_date(report_name)
+            if not ref_date:
+                continue
+
+            try:
+                docs = dart_call_with_retry(self.dart.sub_docs, rcept_no)
+            except Exception:
+                logger.debug("sub_docs failed for %s", rcept_no)
+                continue
+
+            if docs is None or docs.empty:
+                continue
+
+            # Find the "매출 및 수주상황" section URL
+            matched_url = None
+            for _, row in docs.iterrows():
+                title = str(row.get("title", "")).strip()
+                title_key = _WHITESPACE_RE.sub("", title)
+                if section_norm in title_key:
+                    matched_url = str(row.get("url", ""))
+                    break
+
+            if not matched_url:
+                continue
+
+            text = self._fetch_section_text(matched_url)
+            if text:
+                results.append((ref_date, report_name, text))
+                logger.info(
+                    "Backlog history: %s from %s (%d chars)",
+                    ref_date, report_name, len(text),
+                )
+
+        return results
+
     def _find_latest_report_rcept(self, corp: str) -> tuple[str, str] | None:
         """Find the most recent periodic report receipt number.
 

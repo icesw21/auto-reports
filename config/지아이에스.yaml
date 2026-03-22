@@ -1,0 +1,14 @@
+company:
+  name: 지아이에스
+  ticker: '306620'
+  tags: []
+report:
+  output_dir: ''
+  years: 5
+  quarters: 8
+  statement_type: 연결
+disclosures:
+  exchange_disclosures_file: C:/OneDrive/stocks/지아이에스/지아이에스_exchange_disclosure.json
+analysis:
+  reports_dir: C:/OneDrive/stocks/지아이에스/reports
+  news_file: C:/OneDrive/stocks/지아이에스/지아이에스_news_20260318.json
