@@ -197,7 +197,8 @@ def init(names: tuple[str, ...], init_all: bool, tags: tuple[str, ...], statemen
 @click.option("--verbose", "-v", is_flag=True, help="Enable verbose logging.")
 @click.option("--dry-run", is_flag=True, help="Parse and analyze without writing report.")
 @click.option("--no-copy", is_flag=True, help="Skip writing report to Obsidian inbox.")
-def generate(config_path: str, output_dir: str | None, verbose: bool, dry_run: bool, no_copy: bool):
+@click.option("--force-overwrite", is_flag=True, help="Overwrite existing notes entirely (skip smart merge).")
+def generate(config_path: str, output_dir: str | None, verbose: bool, dry_run: bool, no_copy: bool, force_overwrite: bool):
     """Generate a report from a company config YAML file.
 
     Example: auto-reports generate config/광동제약.yaml
@@ -218,6 +219,7 @@ def generate(config_path: str, output_dir: str | None, verbose: bool, dry_run: b
             output_dir=effective_output_dir,
             verbose=verbose,
             dry_run=dry_run,
+            force_overwrite=force_overwrite,
         )
         if result:
             console.print(f"\nDone. Report at: {result}")
@@ -240,7 +242,8 @@ def generate(config_path: str, output_dir: str | None, verbose: bool, dry_run: b
 @click.option("--verbose", "-v", is_flag=True, help="Enable verbose logging.")
 @click.option("--no-copy", is_flag=True, help="Skip copying reports to Obsidian inbox.")
 @click.option("--workers", "-w", default=1, type=click.IntRange(min=1), help="Number of parallel workers (default: 1=sequential). Use --skip-fnguide with -w>1.")
-def batch(config_paths: tuple[str, ...], run_all: bool, output_dir: str | None, verbose: bool, no_copy: bool, workers: int):
+@click.option("--force-overwrite", is_flag=True, help="Overwrite existing notes entirely (skip smart merge).")
+def batch(config_paths: tuple[str, ...], run_all: bool, output_dir: str | None, verbose: bool, no_copy: bool, workers: int, force_overwrite: bool):
     """Generate reports for multiple companies at once.
 
     \b
@@ -255,7 +258,7 @@ def batch(config_paths: tuple[str, ...], run_all: bool, output_dir: str | None, 
     settings = Settings()
 
     if run_all:
-        run_batch_all(settings, no_copy=no_copy, verbose=verbose, output_dir=output_dir, max_workers=workers)
+        run_batch_all(settings, no_copy=no_copy, verbose=verbose, output_dir=output_dir, max_workers=workers, force_overwrite=force_overwrite)
         return
 
     if not config_paths:

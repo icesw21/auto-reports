@@ -903,6 +903,7 @@ def run_pipeline(
     output_dir: str | None = None,
     verbose: bool = False,
     dry_run: bool = False,
+    force_overwrite: bool = False,
 ) -> Path | None:
     """Run the full pipeline: fetch -> classify -> parse -> analyze -> generate.
 
@@ -911,6 +912,7 @@ def run_pipeline(
         output_dir: Override output directory.
         verbose: Enable verbose logging.
         dry_run: Parse and analyze but don't write report.
+        force_overwrite: Skip smart merge and overwrite existing notes entirely.
 
     Returns:
         Path to generated report file, or None on failure.
@@ -2053,7 +2055,13 @@ def run_pipeline(
     out_dir = Path(output_dir or report_cfg.output_dir or "output")
     safe_name = re.sub(r'[/\\:\0]', '_', company.name).replace('..', '_') or "unnamed"
     output_path = out_dir / f"{safe_name}.md"
-    result_path = write_report(report_data, output_path)
+    result_path = write_report(
+        report_data, output_path,
+        force_overwrite=force_overwrite,
+        api_key=settings.llm_api_key or "",
+        model=settings.llm_model or "",
+        base_url=settings.llm_base_url or "",
+    )
 
     console.print(f"\n[bold green]Report generated:[/bold green] {result_path}")
 

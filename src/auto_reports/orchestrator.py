@@ -327,6 +327,7 @@ def _run_single_pipeline(
     verbose: bool,
     index: int,
     total: int,
+    force_overwrite: bool = False,
 ) -> tuple[str, Path | None, str | None]:
     """Run pipeline for a single company. Thread-safe."""
     from auto_reports.pipeline import run_pipeline
@@ -344,6 +345,7 @@ def _run_single_pipeline(
             output_dir=effective_output_dir,
             verbose=verbose,
             dry_run=False,
+            force_overwrite=force_overwrite,
         )
         if result:
             with _console_lock:
@@ -366,6 +368,7 @@ def run_batch_all(
     output_dir: str | None = None,
     company_filter: str | None = None,
     max_workers: int = 1,
+    force_overwrite: bool = False,
 ) -> list[tuple[str, Path | None, str | None]]:
     """Run batch report generation for all (or filtered) YAML configs.
 
@@ -432,6 +435,7 @@ def run_batch_all(
         for i, config_path in enumerate(configs, 1):
             result = _run_single_pipeline(
                 config_path, effective_output_dir, verbose, i, total,
+                force_overwrite=force_overwrite,
             )
             results.append(result)
     else:
@@ -443,7 +447,7 @@ def run_batch_all(
                 future = executor.submit(
                     _run_single_pipeline,
                     config_path, effective_output_dir, verbose,
-                    i + 1, total,
+                    i + 1, total, force_overwrite,
                 )
                 future_to_idx[future] = i
 
