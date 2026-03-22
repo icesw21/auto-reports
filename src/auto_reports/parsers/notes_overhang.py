@@ -55,7 +55,7 @@ def parse_notes_overhang(
         category, series, kind, face_value, convertible_shares,
         conversion_price, exercise_start, exercise_end, active
     """
-    # Try LLM-based extraction first when API key is available
+    # LLM-only extraction (regex parser retained as dead code for potential rollback)
     if api_key:
         try:
             from auto_reports.parsers.notes_overhang_llm import (
@@ -68,19 +68,14 @@ def parse_notes_overhang(
             )
             if results:
                 logger.info(
-                    "LLM-based overhang extraction: %d instruments", len(results),
+                    "LLM overhang extraction: %d instruments", len(results),
                 )
                 return results
-            logger.info(
-                "LLM returned no instruments, falling back to regex parsing",
-            )
+            logger.info("LLM returned no instruments")
         except Exception as e:
-            logger.warning(
-                "LLM overhang extraction failed (%s), falling back to regex", e,
-            )
+            logger.warning("LLM overhang extraction failed: %s", e)
 
-    # Regex-based parsing (original logic)
-    return _parse_notes_overhang_regex(html)
+    return []
 
 
 def _parse_notes_overhang_regex(html: str) -> list[dict]:
