@@ -610,18 +610,50 @@ def summarize_business_sections(
         summary.major_suppliers = _call_llm(client, model, prompt, _sys)
         time.sleep(2)
 
-    # 3. Major customers + revenue breakdown + order backlog (매출수주)
-    if 매출수주:
-        # Strip trailing summary/aggregate section to prevent LLM from
-        # using pre-aggregated totals instead of per-type breakdown.
-        매출수주 = _strip_revenue_summary(매출수주)
-        # Detect unit for explicit conversion guidance
-        unit = _detect_revenue_unit(매출수주)
+    # 3. Revenue breakdown: try "2. 주요 제품" first, fallback to "4. 매출 및 수주상황"
+    # "2. 주요 제품 및 서비스" sometimes has more granular product-level revenue data.
+    # If it has revenue tables, use that as the primary source for 부문별 매출.
+    _revenue_source_text = ""
+    _revenue_source_label = ""
+
+    if 주요제품:
+        # Check if "2. 주요 제품 및 서비스" has revenue/매출 data
+        _has_revenue = bool(re.search(r"매출[액금]?|매출\s*비중|매출\s*현황", 주요제품))
+        _has_numbers = bool(re.search(r"[\d,]{4,}", 주요제품))
+        if _has_revenue and _has_numbers:
+            _revenue_source_text = 주요제품
+            _revenue_source_label = "주요 제품 및 서비스"
+
+    if not _revenue_source_text and 매출수주:
+        _revenue_source_text = 매출수주
+        _revenue_source_label = "매출 및 수주상황"
+
+    # 4. Major customers + revenue breakdown + order backlog
+    if _revenue_source_text or 매출수주:
+        # Prepare revenue breakdown source
+        rev_text = _strip_revenue_summary(_revenue_source_text) if _revenue_source_text else ""
+        unit = _detect_revenue_unit(rev_text) if rev_text else "백만원"
         conv_rule = _build_conv_rule(unit, _display_unit)
 
-        prompt = f"""다음은 사업보고서의 '매출 및 수주상황' 섹션입니다.
+        # Build cross-check context from the other section
+        crosscheck_ctx = ""
+        if _revenue_source_label == "주요 제품 및 서비스" and 매출수주:
+            crosscheck_ctx = (
+                f"\n\n[참고: 매출 및 수주상황 (합계 검증용)]\n"
+                f"{매출수주[:2000]}"
+            )
+        elif _revenue_source_label == "매출 및 수주상황" and 주요제품:
+            crosscheck_ctx = (
+                f"\n\n[참고: 주요 제품 및 서비스 (제품 세부 설명)]\n"
+                f"{주요제품[:2000]}"
+            )
 
-{매출수주[:4000]}
+        # Customer + order backlog always from 매출수주
+        매출수주_for_prompt = _strip_revenue_summary(매출수주) if 매출수주 else ""
+
+        prompt = f"""다음은 사업보고서의 '{_revenue_source_label}' 섹션입니다.
+
+{rev_text[:4000]}{crosscheck_ctx}
 
 위 내용을 바탕으로 다음 세 가지를 각각 요약해주세요.
 반드시 아래 형식을 따라주세요:
@@ -651,6 +683,17 @@ def summarize_business_sections(
 (수주 현황이 있으면 요약, 없으면 "해당사항 없음")
 - {conv_rule}"""
 
+        # If revenue source was "주요 제품", append 매출수주 context for 주요매출처 and 수주잔고
+        if _revenue_source_label == "주요 제품 및 서비스" and 매출수주_for_prompt:
+            매출수주_unit = _detect_revenue_unit(매출수주_for_prompt)
+            매출수주_conv = _build_conv_rule(매출수주_unit, _display_unit)
+            prompt += f"""
+
+※ 아래는 '매출 및 수주상황' 섹션입니다. [주요 매출처]와 [수주잔고] 작성 시 이 정보도 활용하세요.
+- {매출수주_conv}
+
+{매출수주_for_prompt[:3000]}"""
+
         result = _call_llm(client, model, prompt, _sys)
         # Parse the structured response
         sections = _parse_structured_response(result)
@@ -660,6 +703,11 @@ def summarize_business_sections(
             raw_breakdown, known_revenue_won, _display_unit,
         )
         summary.order_backlog = sections.get("수주잔고", "")
+
+        if _revenue_source_label == "주요 제품 및 서비스":
+            logger.info("Revenue breakdown sourced from '2. 주요 제품 및 서비스'")
+        else:
+            logger.info("Revenue breakdown sourced from '4. 매출 및 수주상황'")
 
     return summary
 
