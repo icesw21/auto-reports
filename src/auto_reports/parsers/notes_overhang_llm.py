@@ -48,6 +48,7 @@ Each element represents one instrument with these fields:
   "series": <int>,
   "kind": "<string>",
   "face_value": <int>,
+  "remaining_balance": <int>,
   "convertible_shares": <int>,
   "conversion_price": <int>,
   "exercise_start": "YYYY.MM.DD",
@@ -66,6 +67,11 @@ Field definitions:
 Convert units: 천원→×1000, 백만원→×1000000, 억원→×100000000. \
 Korean text numbers: 금 삼백억원 = 30000000000. \
 For 주식매수선택권(SO), face_value is 0 (not applicable).
+- remaining_balance: Unconverted/unredeemed remaining balance in KRW (원). \
+Look for: 미전환사채 잔액, 미상환 잔액, 미행사 잔액, 신고일 현재 미전환사채 잔액. \
+If "전액 전환", "전액 상환", "전부 전환", or 잔액 = 0, return 0. \
+If not explicitly stated, use face_value as default. \
+For SO, remaining_balance is 0.
 - convertible_shares: Shares issuable on conversion/exercise. \
 For CB/BW: if not stated, calculate: face_value ÷ conversion_price (floor division). \
 For SO: use 잔여수량/미행사수량 (remaining exercisable shares). \

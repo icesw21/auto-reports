@@ -322,14 +322,21 @@ class OverhangAnalyzer:
             key = f"PREF_{safe_kind}" if safe_kind else f"PREF_{id(inst)}"
 
         face_value = inst.get("face_value", 0)
+        remaining_balance = inst.get("remaining_balance")
+        if category == "SO":
+            effective_remaining = 0
+            effective_shares = inst.get("convertible_shares", 0)
+        else:
+            effective_remaining = remaining_balance if remaining_balance is not None else face_value
+            effective_shares = inst.get("convertible_shares", 0) if effective_remaining > 0 else 0
         self._instruments[key] = _InstrumentState(
             category=category,
             series=series,
             kind=kind,
             face_value=face_value,
-            remaining=face_value,
+            remaining=effective_remaining,
             conversion_price=inst.get("conversion_price", 0),
-            convertible_shares=inst.get("convertible_shares", 0),
+            convertible_shares=effective_shares,
             exercise_start=inst.get("exercise_start", ""),
             exercise_end=inst.get("exercise_end", ""),
         )
