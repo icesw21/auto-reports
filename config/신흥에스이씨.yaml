@@ -1,0 +1,14 @@
+company:
+  name: 신흥에스이씨
+  ticker: '243840'
+  tags: []
+report:
+  output_dir: ''
+  years: 5
+  quarters: 8
+  statement_type: 연결
+disclosures:
+  exchange_disclosures_file: C:/OneDrive/stocks/신흥에스이씨/신흥에스이씨_exchange_disclosure.json
+analysis:
+  reports_dir: C:/OneDrive/stocks/신흥에스이씨/reports
+  news_file: C:/OneDrive/stocks/신흥에스이씨/신흥에스이씨_news_20260325.json

@@ -1,0 +1,14 @@
+company:
+  name: 셀레믹스
+  ticker: '331920'
+  tags: []
+report:
+  output_dir: ''
+  years: 5
+  quarters: 8
+  statement_type: 연결
+disclosures:
+  exchange_disclosures_file: C:/OneDrive/stocks/셀레믹스/셀레믹스_exchange_disclosure.json
+analysis:
+  reports_dir: C:/OneDrive/stocks/셀레믹스/reports
+  news_file: C:/OneDrive/stocks/셀레믹스/셀레믹스_news_20260323.json

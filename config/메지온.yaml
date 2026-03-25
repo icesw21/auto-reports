@@ -1,0 +1,14 @@
+company:
+  name: 메지온
+  ticker: '140410'
+  tags: []
+report:
+  output_dir: ''
+  years: 5
+  quarters: 8
+  statement_type: 연결
+disclosures:
+  exchange_disclosures_file: C:/OneDrive/stocks/메지온/메지온_exchange_disclosure.json
+analysis:
+  reports_dir: C:/OneDrive/stocks/메지온/reports
+  news_file: C:/OneDrive/stocks/메지온/메지온_news_20260324.json
