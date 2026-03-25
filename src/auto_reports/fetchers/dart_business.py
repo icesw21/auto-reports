@@ -16,6 +16,18 @@ from auto_reports.fetchers.rate_limiter import dart_call_with_retry, dart_get_wi
 logger = logging.getLogger(__name__)
 
 _WHITESPACE_RE = re.compile(r"[\s\xa0]+")
+_SEGMENT_PREFIX_RE = re.compile(r"^\d+\.(?:\([^)]*\))?")
+
+
+def _core_section_name(normalized: str) -> str:
+    """Strip number prefix and optional segment prefix.
+
+    Examples (after whitespace normalization):
+        '1.사업의개요'           → '사업의개요'
+        '1.(제조서비스업)사업의개요' → '사업의개요'
+        '4.(금융업)매출및수주상황'  → '매출및수주상황'
+    """
+    return _SEGMENT_PREFIX_RE.sub("", normalized)
 
 # Sections we want from "II. 사업의 내용"
 _TARGET_SECTIONS = {
@@ -118,10 +130,11 @@ class DartBusinessFetcher:
 
             # Find the "매출 및 수주상황" section URL
             matched_url = None
+            section_core = _core_section_name(section_norm)
             for _, row in docs.iterrows():
                 title = str(row.get("title", "")).strip()
                 title_key = _WHITESPACE_RE.sub("", title)
-                if section_norm in title_key:
+                if section_core in _core_section_name(title_key):
                     matched_url = str(row.get("url", ""))
                     break
 
@@ -232,10 +245,11 @@ class DartBusinessFetcher:
         # Fetch each target section
         for field, section_title in _TARGET_SECTIONS.items():
             section_norm = _WHITESPACE_RE.sub("", section_title)
-            # Find matching title (substring match for flexibility)
+            # Find matching title (core name match, ignores segment prefix)
             matched_url = None
+            section_core = _core_section_name(section_norm)
             for title_key, url in title_url_map.items():
-                if section_norm in title_key:
+                if section_core in _core_section_name(title_key):
                     matched_url = url
                     break
 

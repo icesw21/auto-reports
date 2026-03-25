@@ -52,6 +52,7 @@ _BS_SUBSTRING_EXCLUSIONS: dict[str, list[str]] = {
     "장기차입금": ["유동성", "유동"],
     "자본총계": ["부채"],
     "부채총계": ["자본"],
+    "매출": ["원가", "총이익", "총손실"],
 }
 
 # Income statement field -> Korean account name variants
