@@ -55,10 +55,20 @@ def _row_texts(row: Tag) -> list[str]:
 # ---------------------------------------------------------------------------
 
 def _kv_get(kv: dict[str, str], fragment: str) -> Optional[str]:
-    """Find a key containing fragment and return its value."""
-    for k, v in kv.items():
-        if fragment in k:
-            return v.strip() or None
+    """Find a key containing fragment and return its value.
+
+    When multiple keys match, prefer the shortest key to avoid
+    merged summary-table headers that concatenate column names.
+    """
+    best_key = None
+    best_len = float('inf')
+    for k in kv:
+        if fragment in k and len(k) < best_len:
+            best_key = k
+            best_len = len(k)
+    if best_key is not None:
+        v = kv[best_key].strip()
+        return v or None
     return None
 
 
@@ -193,7 +203,10 @@ def parse_exchange_backlog(soup: BeautifulSoup) -> dict:
             _kv_get(kv, "공급계약 내용") or _kv_get(kv, "공급계약 구분")
         )
         result["detail"] = _kv_get(kv, "체결내용") or _kv_get(kv, "체결계약명")
-        result["contract_amount"] = parse_korean_number(_kv_get(kv, "계약금액(원)") or _kv_get(kv, "계약금액"))
+        result["contract_amount"] = parse_korean_number(
+            _kv_get(kv, "계약금액 총액") or _kv_get(kv, "계약금액 합계")
+            or _kv_get(kv, "계약금액(원)") or _kv_get(kv, "계약금액")
+        )
         result["recent_revenue"] = parse_korean_number(_kv_get(kv, "매출액(원)"))
         result["revenue_ratio_pct"] = parse_korean_float(_kv_get(kv, "매출액대비") or _kv_get(kv, "매출액 대비"))
         result["is_large_corp"] = _parse_large_corp(_kv_get(kv, "법인여부"))
