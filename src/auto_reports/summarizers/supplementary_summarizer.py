@@ -33,7 +33,7 @@ def extract_shareholder_info(
     if not section_text or not api_key:
         return ""
     if not model:
-        model = "gpt-4.1-mini"
+        model = "gpt-5.4-mini"
 
     prompt = (
         "다음은 DART 공시의 '주주에 관한 사항' 섹션입니다.\n\n"
@@ -65,7 +65,7 @@ def extract_dividend_info(
     if not section_text or not api_key:
         return ""
     if not model:
-        model = "gpt-4.1-mini"
+        model = "gpt-5.4-mini"
 
     prompt = (
         "다음은 DART 공시의 '배당에 관한 사항' 섹션입니다.\n\n"
@@ -94,7 +94,7 @@ def extract_subsidiary_info(
     if not section_text or not api_key:
         return ""
     if not model:
-        model = "gpt-4.1-mini"
+        model = "gpt-5.4-mini"
 
     prompt = (
         "다음은 DART 공시의 '연결대상 종속회사 현황' 섹션입니다.\n\n"

@@ -63,7 +63,7 @@ def parse_notes_overhang(
             )
 
             results = parse_notes_overhang_llm(
-                html, api_key=api_key, model=model or "gpt-4.1-mini",
+                html, api_key=api_key, model=model or "gpt-5.4-mini",
                 base_url=base_url,
             )
             if results:

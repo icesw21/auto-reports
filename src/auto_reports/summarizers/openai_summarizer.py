@@ -233,7 +233,7 @@ def extract_order_backlog_timeseries(
         return ""
 
     if not model:
-        model = "gpt-4.1-mini"
+        model = "gpt-5.4-mini"
 
     display_unit = "억원" if currency == "KRW" else f"백만 {currency}"
     client = OpenAI(
@@ -554,13 +554,13 @@ def summarize_business_sections(
         원재료: Raw text from "3. 원재료 및 생산설비"
         매출수주: Raw text from "4. 매출 및 수주상황"
         api_key: OpenAI API key
-        model: Model to use (default: gpt-4.1-mini)
+        model: Model to use (default: gpt-5.4-mini)
 
     Returns:
         BusinessSummary with summarized content.
     """
     if not model:
-        model = "gpt-4.1-mini"
+        model = "gpt-5.4-mini"
     client = OpenAI(
         api_key=api_key, max_retries=5,
         **({"base_url": base_url} if base_url else {}),
@@ -778,7 +778,7 @@ def generate_report_tags(
         return []
 
     if not model:
-        model = "gpt-4.1-mini"
+        model = "gpt-5.4-mini"
 
     # Build context from available sections
     parts: list[str] = []

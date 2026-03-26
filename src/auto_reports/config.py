@@ -53,7 +53,7 @@ class Settings(BaseSettings):
 
     # OpenAI / LLM
     openai_api_key: str = ""
-    openai_model: str = "gpt-4.1-mini"
+    openai_model: str = "gpt-5.4-mini"
     gemini_api_key: str = ""
     gemini_model: str = "gemini-2.0-flash"
 
@@ -72,7 +72,7 @@ class Settings(BaseSettings):
     @property
     def llm_model(self) -> str:
         """Default LLM model (auto-selects Gemini model when using Gemini API)."""
-        if self.gemini_api_key and self.openai_model == "gpt-4.1-mini":
+        if self.gemini_api_key and self.openai_model == "gpt-5.4-mini":
             return self.gemini_model
         return self.openai_model
 

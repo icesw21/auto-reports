@@ -149,7 +149,7 @@ def _llm_merge_section(
     from openai import OpenAI
 
     if not model:
-        model = "gpt-4.1-mini"
+        model = "gpt-5.4-mini"
 
     existing_stripped = existing_content.strip()
     new_stripped = new_content.strip()

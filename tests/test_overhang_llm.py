@@ -649,7 +649,7 @@ class TestParseNotesOverhangLlm:
         mock_openai_cls.return_value = mock_client
 
         results = parse_notes_overhang_llm(
-            self._make_html(), api_key="test-key", model="gpt-4.1-mini",
+            self._make_html(), api_key="test-key", model="gpt-5.4-mini",
         )
 
         assert len(results) == 1
@@ -734,7 +734,7 @@ class TestParseNotesOverhangWithLlm:
         mock_openai_cls.return_value = mock_client
 
         results = parse_notes_overhang(
-            self._make_html(), api_key="test-key", model="gpt-4.1-mini",
+            self._make_html(), api_key="test-key", model="gpt-5.4-mini",
         )
 
         assert len(results) == 1

@@ -249,7 +249,7 @@ def _collect_section_html(
 def parse_notes_overhang_llm(
     html: str,
     api_key: str,
-    model: str = "gpt-4.1-mini",
+    model: str = "gpt-5.4-mini",
     base_url: str = "",
 ) -> list[dict]:
     """Extract overhang instruments from notes HTML using LLM.
@@ -257,7 +257,7 @@ def parse_notes_overhang_llm(
     Args:
         html: Raw HTML of the 재무제표 주석 section
         api_key: OpenAI API key
-        model: Model to use (default: gpt-4.1-mini)
+        model: Model to use (default: gpt-5.4-mini)
 
     Returns:
         List of instrument dicts with 9 standard fields, or empty list on failure.

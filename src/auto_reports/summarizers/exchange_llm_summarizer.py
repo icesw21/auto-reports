@@ -23,7 +23,7 @@ from auto_reports.fetchers.rate_limiter import get_llm_limiter
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_MODEL = "gpt-4.1-mini"
+_DEFAULT_MODEL = "gpt-5.4-mini"
 _TEXT_MAX_CHARS = 6000
 
 
@@ -37,7 +37,7 @@ def extract_exchange_performance(
     Args:
         html_text: Raw text extracted from disclosure HTML via soup.get_text().
         api_key: OpenAI API key.
-        model: OpenAI model name. Defaults to gpt-4.1-mini.
+        model: OpenAI model name. Defaults to gpt-5.4-mini.
 
     Returns:
         Dict matching Performance model structure, or None if extraction fails.
@@ -97,7 +97,7 @@ def extract_exchange_contract(
     Args:
         html_text: Raw text extracted from disclosure HTML via soup.get_text().
         api_key: OpenAI API key.
-        model: OpenAI model name. Defaults to gpt-4.1-mini.
+        model: OpenAI model name. Defaults to gpt-5.4-mini.
 
     Returns:
         Dict matching exchange_disclosure backlog result structure, or None.
@@ -158,7 +158,7 @@ def extract_exchange_overhang(
     Args:
         html_text: Raw text extracted from disclosure HTML via soup.get_text().
         api_key: OpenAI API key.
-        model: OpenAI model name. Defaults to gpt-4.1-mini.
+        model: OpenAI model name. Defaults to gpt-5.4-mini.
 
     Returns:
         Tuple of (category, data) where category is "exercise" or "price_adj",
@@ -251,7 +251,7 @@ def extract_exchange_disclosure_unified(
         html_text: Raw text extracted from disclosure HTML via soup.get_text().
         title: Disclosure title from the JSON entry.
         api_key: OpenAI API key.
-        model: OpenAI model name. Defaults to gpt-4.1-mini.
+        model: OpenAI model name. Defaults to gpt-5.4-mini.
 
     Returns:
         Tuple of (category, data) or None if extraction fails.

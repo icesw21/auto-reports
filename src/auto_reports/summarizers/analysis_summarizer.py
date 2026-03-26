@@ -75,13 +75,13 @@ def extract_estimated_earnings(
         company_name: Company name for context.
         target_year: Year to extract estimates for (e.g. 2026).
         api_key: OpenAI API key.
-        model: Model to use (default: gpt-4.1-mini).
+        model: Model to use (default: gpt-5.4-mini).
 
     Returns:
         Average estimated net income in KRW (원), or None if unavailable.
     """
     if not model:
-        model = "gpt-4.1-mini"
+        model = "gpt-5.4-mini"
 
     if not reports_dir.is_dir():
         return None
@@ -306,7 +306,7 @@ def generate_analysis(
         report_sections_1_to_4: Text of already-generated sections 1-4.
         prompt_template: The analysis prompt template with {company_name} and {sources_content} placeholders.
         api_key: OpenAI API key.
-        model: Model to use (empty string falls back to gpt-4.1-mini).
+        model: Model to use (empty string falls back to gpt-5.4-mini).
         reports_dir: Directory containing research report PDFs.
         news_file: Path to news JSON file.
 
@@ -314,7 +314,7 @@ def generate_analysis(
         AnalysisResult with generated content.
     """
     if not model:
-        model = "gpt-4.1-mini"
+        model = "gpt-5.4-mini"
 
     result = AnalysisResult()
 
@@ -370,7 +370,7 @@ def supplement_value_driver_and_competitors(
         (value_driver, competitor_comparison) tuple of strings.
     """
     if not model:
-        model = "gpt-4.1-mini"
+        model = "gpt-5.4-mini"
 
     sources_content = _load_sources(report_sections_1_to_4, reports_dir, news_file)
 
@@ -438,7 +438,7 @@ def generate_momentum_text(
         Momentum text string (3-5 single-sentence items, newline-separated), or empty string.
     """
     if not model:
-        model = "gpt-4.1-mini"
+        model = "gpt-5.4-mini"
 
     sources_content = _load_sources(report_sections_1_to_4, reports_dir, news_file)
 

@@ -12,7 +12,7 @@ from auto_reports.fetchers.rate_limiter import get_llm_limiter
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_MODEL = "gpt-4.1-mini"
+_DEFAULT_MODEL = "gpt-5.4-mini"
 _MAX_INPUT_CHARS = 8000
 
 
@@ -81,7 +81,7 @@ def extract_rights_issue(text: str, api_key: str, model: str = "", base_url: str
     Args:
         text: Raw text from 유상증자 PDF or HTML disclosure.
         api_key: OpenAI API key.
-        model: OpenAI model name. Defaults to gpt-4.1-mini.
+        model: OpenAI model name. Defaults to gpt-5.4-mini.
 
     Returns:
         Dict matching parse_rights_issue_pdf output shape, or None on failure.
@@ -127,7 +127,7 @@ def extract_cb_issuance(text: str, api_key: str, model: str = "", base_url: str 
     Args:
         text: Raw text from CB/BW 발행결정 disclosure (HTML or PDF).
         api_key: OpenAI API key.
-        model: OpenAI model name. Defaults to gpt-4.1-mini.
+        model: OpenAI model name. Defaults to gpt-5.4-mini.
 
     Returns:
         Dict with bond issuance fields, or None on failure.
@@ -166,7 +166,7 @@ def extract_stock_option(text: str, api_key: str, model: str = "", base_url: str
     Args:
         text: Raw text from 주식매수선택권 disclosure (HTML or PDF).
         api_key: OpenAI API key.
-        model: OpenAI model name. Defaults to gpt-4.1-mini.
+        model: OpenAI model name. Defaults to gpt-5.4-mini.
 
     Returns:
         Dict with stock option fields, or None on failure.
@@ -202,7 +202,7 @@ def classify_disclosure_type(text: str, api_key: str, model: str = "", base_url:
     Args:
         text: Raw text from a 주요사항보고서 PDF.
         api_key: OpenAI API key.
-        model: OpenAI model name. Defaults to gpt-4.1-mini.
+        model: OpenAI model name. Defaults to gpt-5.4-mini.
 
     Returns:
         One of: "유상증자결정", "전환사채권 발행결정",
