@@ -16,7 +16,7 @@ _DEFAULT_MODEL = "gpt-5.4-mini"
 _MAX_INPUT_CHARS = 8000
 
 
-def _call_llm(api_key: str, model: str, prompt: str, max_tokens: int, base_url: str = "") -> str:
+def _call_llm(api_key: str, model: str, prompt: str, max_completion_tokens: int, base_url: str = "") -> str:
     """Shared LLM call with rate limiting and RateLimitError retry."""
     if not model:
         model = _DEFAULT_MODEL
@@ -30,7 +30,7 @@ def _call_llm(api_key: str, model: str, prompt: str, max_tokens: int, base_url: 
             model=model,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.0,
-            max_tokens=max_tokens,
+            max_completion_tokens=max_completion_tokens,
         )
         return (response.choices[0].message.content or "").strip()
     except RateLimitError as exc:
@@ -43,7 +43,7 @@ def _call_llm(api_key: str, model: str, prompt: str, max_tokens: int, base_url: 
                     model=model,
                     messages=[{"role": "user", "content": prompt}],
                     temperature=0.0,
-                    max_tokens=max_tokens,
+                    max_completion_tokens=max_completion_tokens,
                 )
                 return (response.choices[0].message.content or "").strip()
             except RateLimitError:
@@ -113,7 +113,7 @@ def extract_rights_issue(text: str, api_key: str, model: str = "", base_url: str
 공시 원문:
 {truncated}"""
 
-    raw = _call_llm(api_key, model, prompt, max_tokens=1024, base_url=base_url)
+    raw = _call_llm(api_key, model, prompt, max_completion_tokens=1024, base_url=base_url)
     result = _parse_json_response(raw)
     if result is None:
         logger.warning("extract_rights_issue: LLM returned unparseable response")
@@ -152,7 +152,7 @@ def extract_cb_issuance(text: str, api_key: str, model: str = "", base_url: str 
 공시 원문:
 {truncated}"""
 
-    raw = _call_llm(api_key, model, prompt, max_tokens=512, base_url=base_url)
+    raw = _call_llm(api_key, model, prompt, max_completion_tokens=512, base_url=base_url)
     result = _parse_json_response(raw)
     if result is None:
         logger.warning("extract_cb_issuance: LLM returned unparseable response")
@@ -188,7 +188,7 @@ def extract_stock_option(text: str, api_key: str, model: str = "", base_url: str
 공시 원문:
 {truncated}"""
 
-    raw = _call_llm(api_key, model, prompt, max_tokens=512, base_url=base_url)
+    raw = _call_llm(api_key, model, prompt, max_completion_tokens=512, base_url=base_url)
     result = _parse_json_response(raw)
     if result is None:
         logger.warning("extract_stock_option: LLM returned unparseable response")
@@ -233,7 +233,7 @@ def classify_disclosure_type(text: str, api_key: str, model: str = "", base_url:
 공시 원문:
 {truncated}"""
 
-    raw = _call_llm(api_key, model, prompt, max_tokens=64, base_url=base_url)
+    raw = _call_llm(api_key, model, prompt, max_completion_tokens=64, base_url=base_url)
     parsed = _parse_json_response(raw)
     if parsed is None:
         logger.warning("classify_disclosure_type: LLM returned unparseable response; defaulting to '기타'")

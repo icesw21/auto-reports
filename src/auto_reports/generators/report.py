@@ -193,7 +193,7 @@ def _llm_merge_section(
             model=model,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.2,
-            max_tokens=3000,
+            max_completion_tokens=3000,
         )
         result = (response.choices[0].message.content or "").strip()
         if result:

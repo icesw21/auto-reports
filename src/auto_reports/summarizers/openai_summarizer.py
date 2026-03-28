@@ -280,7 +280,7 @@ def extract_order_backlog_timeseries(
                 model=model,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.1,
-                max_tokens=500,
+                max_completion_tokens=500,
             )
             content = (response.choices[0].message.content or "").strip()
             # Extract JSON from response (may have markdown fences)
@@ -724,7 +724,7 @@ def _call_llm(client: OpenAI, model: str, prompt: str, sys_prompt: str = "") -> 
                 {"role": "user", "content": prompt},
             ],
             temperature=0.3,
-            max_tokens=1500,
+            max_completion_tokens=1500,
         )
         content = response.choices[0].message.content
         return (content or "").strip()
@@ -742,7 +742,7 @@ def _call_llm(client: OpenAI, model: str, prompt: str, sys_prompt: str = "") -> 
                         {"role": "user", "content": prompt},
                     ],
                     temperature=0.3,
-                    max_tokens=1500,
+                    max_completion_tokens=1500,
                 )
                 content = response.choices[0].message.content
                 return (content or "").strip()
@@ -825,7 +825,7 @@ K방산수출"""
             model=model,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.3,
-            max_tokens=200,
+            max_completion_tokens=200,
         )
         content = (response.choices[0].message.content or "").strip()
     except RateLimitError as e:
@@ -838,7 +838,7 @@ K방산수출"""
                     model=model,
                     messages=[{"role": "user", "content": prompt}],
                     temperature=0.3,
-                    max_tokens=200,
+                    max_completion_tokens=200,
                 )
                 content = (response.choices[0].message.content or "").strip()
                 break

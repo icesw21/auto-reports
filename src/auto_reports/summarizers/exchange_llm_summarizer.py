@@ -70,7 +70,7 @@ def extract_exchange_performance(
         "데이터를 찾을 수 없으면 null을 응답하세요."
     )
 
-    raw = _call_llm(api_key, model, prompt, max_tokens=600)
+    raw = _call_llm(api_key, model, prompt, max_completion_tokens=600)
     if not raw:
         return None
 
@@ -132,7 +132,7 @@ def extract_exchange_contract(
         "데이터를 찾을 수 없으면 null을 응답하세요."
     )
 
-    raw = _call_llm(api_key, model, prompt, max_tokens=500)
+    raw = _call_llm(api_key, model, prompt, max_completion_tokens=500)
     if not raw:
         return None
 
@@ -211,7 +211,7 @@ def extract_exchange_overhang(
         "데이터를 찾을 수 없으면 null을 응답하세요."
     )
 
-    raw = _call_llm(api_key, model, prompt, max_tokens=800)
+    raw = _call_llm(api_key, model, prompt, max_completion_tokens=800)
     if not raw:
         return None
 
@@ -325,7 +325,7 @@ def extract_exchange_disclosure_unified(
         "모든 숫자는 쉼표 없이 정수로 표기하세요."
     )
 
-    raw = _call_llm(api_key, model, prompt, max_tokens=1200, base_url=base_url)
+    raw = _call_llm(api_key, model, prompt, max_completion_tokens=1200, base_url=base_url)
     if not raw:
         return None
 
@@ -351,7 +351,7 @@ def _call_llm(
     api_key: str,
     model: str,
     prompt: str,
-    max_tokens: int = 400,
+    max_completion_tokens: int = 400,
     base_url: str = "",
 ) -> str:
     """Make an OpenAI API call with rate limiting and RateLimitError retry."""
@@ -365,7 +365,7 @@ def _call_llm(
             model=model,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.0,
-            max_tokens=max_tokens,
+            max_completion_tokens=max_completion_tokens,
         )
         return (response.choices[0].message.content or "").strip()
     except RateLimitError as e:
@@ -378,7 +378,7 @@ def _call_llm(
                     model=model,
                     messages=[{"role": "user", "content": prompt}],
                     temperature=0.0,
-                    max_tokens=max_tokens,
+                    max_completion_tokens=max_completion_tokens,
                 )
                 return (response.choices[0].message.content or "").strip()
             except RateLimitError:

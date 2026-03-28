@@ -47,7 +47,7 @@ def extract_shareholder_info(
         "- 다른 텍스트 불필요"
     )
 
-    return _call_llm(api_key, model, prompt, max_tokens=100, base_url=base_url)
+    return _call_llm(api_key, model, prompt, max_completion_tokens=100, base_url=base_url)
 
 
 def extract_dividend_info(
@@ -78,7 +78,7 @@ def extract_dividend_info(
         "- 다른 텍스트 불필요"
     )
 
-    return _call_llm(api_key, model, prompt, max_tokens=150, base_url=base_url)
+    return _call_llm(api_key, model, prompt, max_completion_tokens=150, base_url=base_url)
 
 
 def extract_subsidiary_info(
@@ -106,14 +106,14 @@ def extract_subsidiary_info(
         "- 다른 텍스트 불필요"
     )
 
-    return _call_llm(api_key, model, prompt, max_tokens=300, base_url=base_url)
+    return _call_llm(api_key, model, prompt, max_completion_tokens=300, base_url=base_url)
 
 
 def _call_llm(
     api_key: str,
     model: str,
     prompt: str,
-    max_tokens: int = 200,
+    max_completion_tokens: int = 200,
     base_url: str = "",
 ) -> str:
     """Make an OpenAI API call with rate limiting and RateLimitError retry."""
@@ -127,7 +127,7 @@ def _call_llm(
             model=model,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.0,
-            max_tokens=max_tokens,
+            max_completion_tokens=max_completion_tokens,
         )
         result = (response.choices[0].message.content or "").strip()
         # Clean up: remove quotes wrapping the entire response
@@ -147,7 +147,7 @@ def _call_llm(
                     model=model,
                     messages=[{"role": "user", "content": prompt}],
                     temperature=0.0,
-                    max_tokens=max_tokens,
+                    max_completion_tokens=max_completion_tokens,
                 )
                 result = (response.choices[0].message.content or "").strip()
                 if result.startswith('"') and result.endswith('"'):

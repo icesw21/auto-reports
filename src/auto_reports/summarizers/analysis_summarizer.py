@@ -118,7 +118,7 @@ def extract_estimated_earnings(
             answer = _llm_call_with_retry(
                 client, model,
                 messages=[{"role": "user", "content": prompt}],
-                temperature=0.0, max_tokens=50,
+                temperature=0.0, max_completion_tokens=50,
             )
 
             if "없음" in answer or not answer:
@@ -335,7 +335,7 @@ def generate_analysis(
     raw_output = _llm_call_with_retry(
         client, model,
         messages=[{"role": "user", "content": prompt}],
-        temperature=0.4, max_tokens=6000,
+        temperature=0.4, max_completion_tokens=6000,
     )
     if not raw_output:
         logger.warning("LLM analysis returned empty response (model=%s)", model)
@@ -400,7 +400,7 @@ def supplement_value_driver_and_competitors(
     raw = _llm_call_with_retry(
         client, model,
         messages=[{"role": "user", "content": prompt}],
-        temperature=0.4, max_tokens=2000,
+        temperature=0.4, max_completion_tokens=2000,
     )
     if not raw:
         return ("", "")
@@ -469,7 +469,7 @@ def generate_momentum_text(
     result = _llm_call_with_retry(
         client, model,
         messages=[{"role": "user", "content": prompt}],
-        temperature=0.3, max_tokens=800,
+        temperature=0.3, max_completion_tokens=800,
     )
     if result:
         # Remove any leading "주요 모멘텀:" prefix if LLM included it

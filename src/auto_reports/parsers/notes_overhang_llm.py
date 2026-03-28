@@ -298,7 +298,7 @@ def parse_notes_overhang_llm(
             {"role": "user", "content": user_prompt},
         ],
         temperature=0.1,
-        max_tokens=4096,
+        max_completion_tokens=4096,
         response_format={"type": "json_object"},
     )
     get_llm_limiter().wait()
