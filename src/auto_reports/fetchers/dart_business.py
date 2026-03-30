@@ -72,7 +72,9 @@ class DartBusinessFetcher:
         end = today.strftime("%Y%m%d")
 
         try:
-            df = dart_call_with_retry(self.dart.list, corp, start=start, end=end, kind="A")
+            df = dart_call_with_retry(
+                self.dart.list, corp, start=start, end=end, kind="A", final=False,
+            )
         except Exception:
             logger.exception("dart.list failed for %s", corp)
             return []
@@ -85,6 +87,7 @@ class DartBusinessFetcher:
 
         report_keywords = "사업보고서|반기보고서|분기보고서"
         mask = df["report_nm"].str.contains(report_keywords, na=False, regex=True)
+        mask &= ~df["report_nm"].str.contains("첨부정정", na=False)
         filtered = df[mask]
 
         if filtered.empty:
@@ -168,7 +171,9 @@ class DartBusinessFetcher:
         end = today.strftime("%Y%m%d")
 
         try:
-            df = dart_call_with_retry(self.dart.list, corp, start=start, end=end, kind="A")
+            df = dart_call_with_retry(
+                self.dart.list, corp, start=start, end=end, kind="A", final=False,
+            )
         except Exception:
             logger.exception("dart.list failed for %s", corp)
             return None
