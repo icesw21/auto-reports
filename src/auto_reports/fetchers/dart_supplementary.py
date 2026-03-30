@@ -42,7 +42,9 @@ class DartSupplementaryFetcher:
         end = today.strftime("%Y%m%d")
 
         try:
-            df = dart_call_with_retry(self.dart.list, corp, start=start, end=end, kind="A")
+            df = dart_call_with_retry(
+                self.dart.list, corp, start=start, end=end, kind="A", final=False,
+            )
         except Exception:
             logger.exception("dart.list failed for %s", corp)
             return None
@@ -58,8 +60,8 @@ class DartSupplementaryFetcher:
         mask = df["report_nm"].str.contains(
             r"사업보고서|반기보고서", na=False, regex=True,
         )
-        # Exclude 분기보고서 that might match
-        exclude = df["report_nm"].str.contains("분기보고서", na=False)
+        # Exclude 분기보고서 and [첨부정정] (attachment-only corrections lack body sections)
+        exclude = df["report_nm"].str.contains(r"분기보고서|첨부정정", na=False)
         filtered = df[mask & ~exclude]
 
         if not filtered.empty:
