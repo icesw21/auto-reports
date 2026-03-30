@@ -1165,6 +1165,14 @@ class OpenDartFetcher:
         amount_col = self._detect_amount_col(df)
         prev_col = "frmtrm_amount" if "frmtrm_amount" in df.columns else None
 
+        def _to_eok(val: str) -> str:
+            """Convert raw amount string to 억원 unit."""
+            try:
+                v = int(str(val).replace(",", "").strip())
+                return f"{round(v / 1_0000_0000):,}억원"
+            except (ValueError, TypeError):
+                return val
+
         def _format_section(sj_div: str) -> str:
             subset = df[df["sj_div"] == sj_div] if "sj_div" in df.columns else df
             if subset.empty:
@@ -1175,14 +1183,15 @@ class OpenDartFetcher:
                 curr = str(row.get(amount_col, "")).strip()
                 prev = str(row.get(prev_col, "")).strip() if prev_col else ""
                 if name and curr:
-                    line = f"{name}: 당기 {curr}"
+                    line = f"{name}: 당기 {_to_eok(curr)}"
                     if prev and prev != curr:
-                        line += f", 전기 {prev}"
+                        line += f", 전기 {_to_eok(prev)}"
                     lines.append(line)
             return "\n".join(lines)
 
         bs_text = _format_section("BS")
-        is_text = _format_section("IS")
+        # 손익계산서: IS (일반) or CIS (포괄손익계산서)
+        is_text = _format_section("CIS") or _format_section("IS")
         return bs_text, is_text
 
 
