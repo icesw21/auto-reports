@@ -181,8 +181,11 @@ class DartBusinessFetcher:
             df = df.sort_values("rcept_dt", ascending=False)
 
         # Filter to only periodic reports (사업/반기/분기보고서)
+        # Exclude [첨부정정] reports — they only correct attachments
+        # (audit reports, financial statements) and lack business sections.
         report_keywords = "사업보고서|반기보고서|분기보고서"
         mask = df["report_nm"].str.contains(report_keywords, na=False, regex=True)
+        mask &= ~df["report_nm"].str.contains("첨부정정", na=False)
         filtered = df[mask]
 
         if not filtered.empty:
