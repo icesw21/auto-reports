@@ -1147,6 +1147,44 @@ class OpenDartFetcher:
             return numeric_cols[-1]
         return df.columns[-1]
 
+    def get_finstate_text(
+        self, corp_code: str, year: int, reprt_code: str = "11011",
+    ) -> tuple[str, str]:
+        """Return full BS and IS as formatted text for LLM highlight generation.
+
+        Returns (bs_text, is_text) tuple. Empty strings if data unavailable.
+        """
+        df, stmt_label = self._fetch_finstate(corp_code, year, reprt_code)
+        if df is None or df.empty:
+            return "", ""
+
+        account_col = (
+            "account_nm" if "account_nm" in df.columns
+            else self._detect_account_col(df)
+        )
+        amount_col = self._detect_amount_col(df)
+        prev_col = "frmtrm_amount" if "frmtrm_amount" in df.columns else None
+
+        def _format_section(sj_div: str) -> str:
+            subset = df[df["sj_div"] == sj_div] if "sj_div" in df.columns else df
+            if subset.empty:
+                return ""
+            lines = []
+            for _, row in subset.iterrows():
+                name = str(row.get(account_col, "")).strip()
+                curr = str(row.get(amount_col, "")).strip()
+                prev = str(row.get(prev_col, "")).strip() if prev_col else ""
+                if name and curr:
+                    line = f"{name}: 당기 {curr}"
+                    if prev and prev != curr:
+                        line += f", 전기 {prev}"
+                    lines.append(line)
+            return "\n".join(lines)
+
+        bs_text = _format_section("BS")
+        is_text = _format_section("IS")
+        return bs_text, is_text
+
 
 def _parse_reference_date(report_name: str) -> str:
     """Extract period end date (기준일) from a periodic report name.

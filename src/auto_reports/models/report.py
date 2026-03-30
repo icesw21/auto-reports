@@ -95,6 +95,7 @@ class ReportData(BaseModel):
     balance_sheet_prev_period: str = ""  # e.g. "2024년말"
     balance_sheet_rows: list[BalanceSheetRow] = Field(default_factory=list)
     balance_sheet_note: str = ""
+    balance_sheet_highlight: str = ""  # LLM-generated 2-line highlight
 
     # Section 3: 손익계산서
     annual_rows: list[AnnualRow] = Field(default_factory=list)
@@ -102,6 +103,7 @@ class ReportData(BaseModel):
     consensus_per_str: str = ""
     quarterly_rows: list[QuarterlyRow] = Field(default_factory=list)
     quarterly_note: str = ""
+    income_highlight: str = ""  # LLM-generated 2-line highlight
 
     # Section 4: 사업 모델
     business_model: str = ""

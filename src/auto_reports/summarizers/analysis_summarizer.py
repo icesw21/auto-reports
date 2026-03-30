@@ -352,6 +352,52 @@ def generate_analysis(
     return result
 
 
+def generate_financial_highlights(
+    bs_text: str,
+    is_text: str,
+    company_name: str,
+    api_key: str,
+    model: str = "",
+    base_url: str = "",
+) -> tuple[str, str]:
+    """Generate 2-line highlights for balance sheet and income statement.
+
+    Returns (bs_highlight, is_highlight) tuple. Each is 2 bullet lines.
+    """
+    if not model:
+        model = "gpt-5.4-mini"
+
+    client = OpenAI(
+        api_key=api_key, max_retries=3,
+        **({"base_url": base_url} if base_url else {}),
+    )
+
+    def _gen(section_name: str, data_text: str) -> str:
+        if not data_text:
+            return ""
+        prompt = (
+            f"다음은 {company_name}의 {section_name} 전체 데이터입니다.\n\n"
+            f"{data_text}\n\n"
+            f"위 데이터에서 전년 대비 가장 주목할 만한 변화 2가지를 골라 "
+            f"각각 '- '로 시작하는 한 줄 불릿으로 작성하세요.\n"
+            f"구체적 수치(금액, 비율)를 반드시 포함하세요.\n"
+            f"명사형 어미로 종결하세요 (예: '자산 22% 증가에 따른 재무구조 개선').\n"
+            f"2줄만 출력하세요."
+        )
+        raw = _llm_call_with_retry(
+            client, model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.2, max_completion_tokens=200,
+        )
+        return raw.strip() if raw else ""
+
+    bs_hl = _gen("재무상태표", bs_text)
+    is_hl = _gen("손익계산서", is_text)
+
+    logger.info("Generated financial highlights (BS=%d, IS=%d chars)", len(bs_hl), len(is_hl))
+    return bs_hl, is_hl
+
+
 def supplement_value_driver_and_competitors(
     company_name: str,
     report_sections_1_to_4: str,

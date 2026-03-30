@@ -1589,6 +1589,29 @@ def run_pipeline(
     quarterly_rows = build_quarterly_rows(quarterly_statements)
     bs_rows = build_balance_sheet_rows(balance_sheet, prev_balance_sheet) if balance_sheet else []
 
+    # ─── Financial highlights (LLM 2-line summary of full BS/IS) ───
+    bs_highlight = ""
+    income_highlight = ""
+    if settings.llm_api_key and corp_code:
+        try:
+            from auto_reports.summarizers.analysis_summarizer import generate_financial_highlights
+            _hl_year = datetime.now().year
+            bs_text, is_text = dart_fetcher.get_finstate_text(corp_code, _hl_year)
+            if bs_text or is_text:
+                bs_highlight, income_highlight = generate_financial_highlights(
+                    bs_text, is_text, company.name,
+                    api_key=settings.llm_api_key,
+                    model=settings.llm_model,
+                    base_url=settings.llm_base_url,
+                )
+                # Indent for Obsidian callout (> prefix each line)
+                if bs_highlight:
+                    bs_highlight = "\n".join(f"> {ln}" for ln in bs_highlight.splitlines())
+                if income_highlight:
+                    income_highlight = "\n".join(f"> {ln}" for ln in income_highlight.splitlines())
+        except Exception:
+            logger.warning("Financial highlights generation failed", exc_info=True)
+
     # ─── Compute display strings (needed for Phase 3.5 and Phase 4) ───
     market_cap_str = ""
     if market_data and market_data.stock_price and market_data.shares_outstanding:
@@ -1998,7 +2021,9 @@ def run_pipeline(
         balance_sheet_period=bs_period or "데이터 없음",
         balance_sheet_prev_period=bs_prev_period,
         balance_sheet_rows=bs_rows,
+        balance_sheet_highlight=bs_highlight,
         annual_rows=annual_rows,
+        income_highlight=income_highlight,
         consensus_rows=consensus_rows,
         consensus_per_str=consensus_per_str,
         quarterly_rows=quarterly_rows,

@@ -70,6 +70,9 @@ links:
 ## 2. 재무상태표
 
 > [!info] {{ data.balance_sheet_period }}
+{%- if data.balance_sheet_highlight %}
+{{ data.balance_sheet_highlight }}
+{%- endif %}
 
 | 항목       | 금액 ({{ data.amount_unit }})   | 전년말 ({{ data.amount_unit }}) | 비고 (전년말 대비)                 |
 | -------- | --------- | --------- | --------------------------- |
@@ -80,6 +83,12 @@ links:
 _주: {{ data.balance_sheet_note }}_
 {%- endif %}
 ## 3. 손익계산서
+{%- if data.income_highlight %}
+
+> [!info] {{ data.balance_sheet_period }}
+{{ data.income_highlight }}
+
+{%- endif %}
 ### 연도별 실적 추이
 | 연도       | 매출액(증감률)          | 영업이익(증감률)         | 당기순이익(증감률)     |
 | -------- | ----------------- | ----------------- | -------------- |
