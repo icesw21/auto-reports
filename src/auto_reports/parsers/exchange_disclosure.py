@@ -607,11 +607,18 @@ def _parse_cb_balance(table: Tag) -> list[dict]:
             if len(currency_indices) >= 2:
                 between_start = currency_indices[0] + 1
                 between_end = currency_indices[1]
+                found_remaining = False
                 for idx in range(between_start, between_end):
                     val = parse_korean_number(texts[idx])
                     if val is not None:
                         bal["remaining"] = val
+                        found_remaining = True
                         break
+                # "-" in the remaining cell means 0 (fully converted)
+                if not found_remaining:
+                    raw_between = [texts[idx].strip() for idx in range(between_start, between_end)]
+                    if any(t == "-" for t in raw_between):
+                        bal["remaining"] = 0
             elif ccy1_idx >= 3:
                 bal["remaining"] = parse_korean_number(texts[ccy1_idx - 1])
             # The numeric values after the last KRW block are conversion_price and shares

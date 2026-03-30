@@ -414,7 +414,11 @@ class OverhangAnalyzer:
             if matched_key:
                 state = self._instruments[matched_key]
                 # Update remaining balance: prefer 미잔액, fall back to 권면총액
-                remaining = bal.get("remaining") or bal.get("face_value")
+                # remaining=0 means fully converted; don't fall back to face_value
+                if "remaining" in bal:
+                    remaining = bal["remaining"]
+                else:
+                    remaining = bal.get("face_value")
                 if remaining is not None:
                     state.remaining = remaining
                 # Update conversion price
@@ -433,7 +437,10 @@ class OverhangAnalyzer:
                 # Fallback: create instrument from cb_balance when notes parsing missed it
                 category = _infer_category_from_exercise(data.get("type", ""))
                 key = f"{category}_{series}"
-                remaining = bal.get("remaining") or bal.get("face_value") or 0
+                if "remaining" in bal:
+                    remaining = bal["remaining"] or 0
+                else:
+                    remaining = bal.get("face_value") or 0
                 cp = bal.get("conversion_price") or 0
                 cs = bal.get("convertible_shares") or bal.get("remaining_shares") or 0
                 if remaining or cs:
