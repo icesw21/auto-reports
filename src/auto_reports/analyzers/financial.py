@@ -124,7 +124,12 @@ def build_balance_sheet_rows(
     # Fallback: borrowings_total (bare "차입금" 합산)
     def _calc_debt(sheet: BalanceSheet) -> Optional[int]:
         if sheet.short_term_debt_and_bonds is not None:
-            short = sheet.short_term_debt_and_bonds
+            # 통합 계정 + 별도로 잡힌 유동성장기차입금/유동성사채 합산
+            short = _sum_optional(
+                sheet.short_term_debt_and_bonds,
+                sheet.current_long_term_debt,
+                sheet.current_bonds,
+            )
         else:
             short = _sum_optional(
                 sheet.short_term_borrowings, sheet.current_long_term_debt,
